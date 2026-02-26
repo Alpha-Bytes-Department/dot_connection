@@ -1101,6 +1101,27 @@ const handlePersonaWebhook = async (
   return { success: true };
 };
 
+
+/**
+ * Delete user
+ * 
+ * @author - @shaishab316
+ */
+const deleteUser = async (userId: string) => {
+  let user = await User.findById(userId);
+
+  if (!user) {
+    throw new AppError(StatusCodes.NOT_FOUND, "User not found");
+  }
+
+  user = await User.findByIdAndDelete(userId,{new: true}).select("-authentication -fcmToken");
+
+  //remove cache
+  await UserCacheManage.updateUserCache(userId);
+
+  return user;
+};
+
 export const UserServices = {
   createUser,
   getAllUsers,
@@ -1121,4 +1142,5 @@ export const UserServices = {
   updateHiddenFields,
   getPersonaVerificationUrl,
   handlePersonaWebhook,
+  deleteUser
 };

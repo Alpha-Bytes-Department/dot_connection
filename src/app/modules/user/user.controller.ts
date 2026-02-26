@@ -395,6 +395,23 @@ const personaWebhook = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+
+/**
+ * Delete user
+ * 
+ * @author - @shaishab316
+ */
+const deleteUser = catchAsync(async (req: Request, res: Response) => {
+  const userId = req.user._id;
+  const user = await UserServices.deleteUser(userId);
+  sendResponse(res, {
+    statusCode: StatusCodes.OK,
+    success: true,
+    message: "User status changed successfully",
+    data: user,
+  });
+});
+
 export const UserController = {
   createUser,
   getAllUsers,
@@ -416,4 +433,5 @@ export const UserController = {
   updateHiddenFields,
   getPersonaVerificationUrl,
   personaWebhook,
+  deleteUser
 };

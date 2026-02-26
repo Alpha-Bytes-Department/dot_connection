@@ -125,4 +125,12 @@ router.post(
 //!mine
 router.delete("/delete", auth(), UserController.changeUserStatus);
 
+
+/**
+ * Delete user account (soft delete by changing status to "delete")
+ * 
+ * @author - @shaishab316
+ */
+router.delete("/delete-account", auth(), UserController.deleteUser);
+
 export const UserRoutes: Router = router;
