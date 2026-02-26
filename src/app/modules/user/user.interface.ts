@@ -1,5 +1,7 @@
 import { Model } from "mongoose";
 import { USER_ROLES } from "./user.constant";
+import type { z } from "zod";
+import type { UserValidation } from "./user.validation";
 
 export type TUser = {
   _id?: string;
@@ -55,3 +57,14 @@ export namespace TReturnUser {
   };
 
 }
+
+
+
+//@author: @shaishab316
+
+///////////////////////////
+//! Validation interfaces
+///////////////////////////
+
+//? create or login user
+export type TCreateOrLoginUserPayload = z.infer<typeof UserValidation.createUser>['body']

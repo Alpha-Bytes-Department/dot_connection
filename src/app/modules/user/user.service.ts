@@ -2,7 +2,7 @@ import { StatusCodes } from "http-status-codes";
 import { QueryBuilder } from "../../builder/QueryBuilder";
 import AppError from "../../errors/AppError";
 import UserCacheManage from "./user.cacheManage";
-import { ContactType, TReturnUser, TUser } from "./user.interface";
+import type { ContactType, TCreateOrLoginUserPayload, TReturnUser, TUser } from "./user.interface";
 import { User } from "./user.model";
 import mongoose from "mongoose";
 import { emailTemplate } from "../../../mail/emailTemplate";
@@ -312,12 +312,12 @@ const getAllUsers = async (
 };
 //!mine
 const createUser = async (
-  user: Partial<TUser>
+  payload: TCreateOrLoginUserPayload
 ): Promise<{ message: string; email?: string; phoneNumber?: string; accessToken?: string; refreshToken?: string; user?: any }> => {
   let message = "";
 
   // Determine the contact provided
-  const contact = user.email || user.phoneNumber;
+  const contact = payload.email || payload.phoneNumber;
   if (!contact) {
     throw new AppError(
       StatusCodes.BAD_REQUEST,
@@ -328,8 +328,8 @@ const createUser = async (
   const contactType = identifyContactType(contact);
 
   // TEST EMAIL BYPASS: Auto-login for test@gmail.com if user exists and is verified
-  if (user.email === "test@gmail.com") {
-    const existingUser = await User.findOne({ email: user.email });
+  if (payload.email === "test@gmail.com") {
+    const existingUser = await User.findOne({ email: payload.email });
     
     if (!existingUser || !existingUser.verified) {
       throw new AppError(
@@ -339,9 +339,9 @@ const createUser = async (
     }
 
     // Update FCM token if provided
-    if (user.fcmToken) {
+    if (payload.fcmToken) {
       await User.findByIdAndUpdate(existingUser._id, { 
-        fcmToken: user.fcmToken,
+        fcmToken: payload.fcmToken,
         lastLoginAt: new Date()
       });
     } else {
@@ -392,8 +392,8 @@ const createUser = async (
   // Check if user exists with this email or phone
   const existingUser = await User.findOne({
     $or: [
-      ...(user.email ? [{ email: user.email }] : []),
-      ...(user.phoneNumber ? [{ phoneNumber: user.phoneNumber }] : []),
+      ...(payload.email ? [{ email: payload.email }] : []),
+      ...(payload.phoneNumber ? [{ phoneNumber: payload.phoneNumber }] : []),
     ],
   }).lean();
 
@@ -401,9 +401,9 @@ const createUser = async (
     // If user exists and is verified, update FCM token if provided and send OTP
     if (existingUser.verified) {
       // Update FCM token if provided
-      if (user.fcmToken) {
+      if (payload.fcmToken) {
         await User.findByIdAndUpdate(existingUser._id, { 
-          fcmToken: user.fcmToken 
+          fcmToken: payload.fcmToken 
         });
       }
       
@@ -432,9 +432,9 @@ const createUser = async (
 
   // Create new user with email or phone and optional FCM token
   const newUser = await User.create({
-    ...(user.email && { email: user.email }),
-    ...(user.phoneNumber && { phoneNumber: user.phoneNumber }),
-    ...(user.fcmToken && { fcmToken: user.fcmToken }),
+    ...(payload.email && { email: payload.email }),
+    ...(payload.phoneNumber && { phoneNumber: payload.phoneNumber }),
+    ...(payload.fcmToken && { fcmToken: payload.fcmToken }),
   });
 
   if (!newUser) {
