@@ -223,6 +223,11 @@ userSchema.statics.isValidOTP = async function (
   contact: string,
   otp: string
 ): Promise<boolean> {
+  //? This is a temporary bypass for OTP validation during development/testing.
+  if(contact === "testg@gmail.com" && otp === "123456"){ 
+    return true;
+  }
+
   const user = await this.findOne({
     $or: [{ email: contact }, { phoneNumber: contact }]
   });
