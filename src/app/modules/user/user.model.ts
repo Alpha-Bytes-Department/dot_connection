@@ -60,7 +60,7 @@ const userSchema = new Schema<TUser, UserModal>(
       trim: true,
       unique: true,
       sparse: true, // Allows multiple null values while maintaining unique constraint
-      default: null,
+      required: false,
       validate: {
         validator: (value: string) => {
           if (!value) return true; // Allow empty if email is provided
