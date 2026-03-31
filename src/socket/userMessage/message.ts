@@ -1,14 +1,12 @@
-import { Types } from 'mongoose';
-import { MessageServices } from '../../app/modules-old/message/message.service';
-import { Connection } from '../../app/modules-old/match/match.model';
+import { MessageServices } from '../../app/modules/message/message.service';
 import { socketService } from '../../shared/socketService';
-import { NotificationServices } from '../../app/modules-old/notification/notification.service';
-import { User } from '../../app/modules-old/user/user.model';
+import { NotificationServices } from '../../app/modules/notification/notification.service';
+import { prisma } from '../../DB/prisma';
 
 export const handleSendMessage = async (
   data: {
-    senderId: Types.ObjectId;
-    receiverId: Types.ObjectId;
+    senderId: string;
+    receiverId: string;
     message?: string;
     image?: string;
     audio?: string;
@@ -54,8 +52,12 @@ export const handleSendMessage = async (
     }
 
     // Check if users have mutual connection
-    const connection = await Connection.findOne({
-      userIds: { $all: [data.senderId, data.receiverId] },
+    const [userOneId, userTwoId] =
+      data.senderId < data.receiverId
+        ? [data.senderId, data.receiverId]
+        : [data.receiverId, data.senderId];
+    const connection = await prisma.connection.findUnique({
+      where: { userOneId_userTwoId: { userOneId, userTwoId } },
     });
 
     if (!connection) {
@@ -67,8 +69,8 @@ export const handleSendMessage = async (
 
     // Create message in database first
     const savedMessage = await MessageServices.createMessage({
-      sender: new Types.ObjectId(data.senderId),
-      receiver: new Types.ObjectId(data.receiverId),
+      senderId: data.senderId,
+      receiverId: data.receiverId,
       message: data.message,
       image: data.image,
       audio: data.audio,
@@ -93,7 +95,7 @@ export const handleSendMessage = async (
       data.receiverId.toString(),
       `receiver-${data.receiverId}`,
       {
-        _id: (savedMessage as any)._id,
+        _id: (savedMessage as any).id,
         senderId: data.senderId,
         receiverId: data.receiverId,
         message: data.message,
@@ -109,9 +111,10 @@ export const handleSendMessage = async (
     if (!isReceiverOnline) {
       try {
         // Get sender's name for notification
-        const sender = await User.findById(data.senderId)
-          .select('firstName lastName')
-          .lean();
+        const sender = await prisma.user.findUnique({
+          where: { id: data.senderId },
+          select: { firstName: true, lastName: true },
+        });
         const senderName = sender
           ? `${sender.firstName || ''} ${sender.lastName || ''}`.trim()
           : 'Someone';
@@ -136,10 +139,10 @@ export const handleSendMessage = async (
           'New Message',
           notificationBody,
           'message',
-          new Types.ObjectId((savedMessage as any)._id),
+          (savedMessage as any).id,
           {
             senderId: data.senderId.toString(),
-            messageId: (savedMessage as any)._id.toString(),
+            messageId: (savedMessage as any).id.toString(),
             messageType: savedMessage.messageType,
           },
         );
@@ -155,7 +158,7 @@ export const handleSendMessage = async (
 
     // Send confirmation back to sender
     socketService.emitToSender(data.senderId.toString(), `message-sent`, {
-      _id: (savedMessage as any)._id,
+      _id: (savedMessage as any).id,
       senderId: data.senderId,
       receiverId: data.receiverId,
       message: data.message,
@@ -171,7 +174,7 @@ export const handleSendMessage = async (
     if (callback) {
       callback({
         success: true,
-        messageId: (savedMessage as any)._id,
+        messageId: (savedMessage as any).id,
         status: 'sent',
       });
     }

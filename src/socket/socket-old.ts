@@ -2,8 +2,8 @@ import { Server } from 'socket.io';
 
 import { socketService } from '../shared/socketService';
 import { handleSendMessage } from './userMessage/message';
-import { prisma } from '../DB/prisma';
-import { MessageServices } from '../app/modules/message/message.service';
+import { User } from '../app/modules-old/user/user.model';
+import { Message } from '../app/modules-old/message/message.model';
 
 export const users = new Map();
 export const activeChatUsers = new Map(); // Map to track active chat sessions
@@ -39,10 +39,7 @@ const setupSocket = (server: any) => {
       const { userId, fcmToken } = data;
       try {
         if (userId && fcmToken) {
-          await prisma.user.update({
-            where: { id: userId },
-            data: { fcmToken },
-          });
+          await User.findByIdAndUpdate(userId, { fcmToken });
           console.log(
             `FCM token updated for user ${userId} via socket: ${fcmToken}`,
           );
@@ -94,7 +91,10 @@ const setupSocket = (server: any) => {
         const { senderId, receiverId } = data;
 
         if (senderId && receiverId) {
-          await MessageServices.markMessagesAsRead(senderId, receiverId);
+          await Message.updateMany(
+            { sender: senderId, receiver: receiverId, isRead: false },
+            { $set: { isRead: true, readAt: new Date() } },
+          );
 
           // Notify the sender that messages have been read
           socketService.emitToUser(senderId, `messages-read`, {
