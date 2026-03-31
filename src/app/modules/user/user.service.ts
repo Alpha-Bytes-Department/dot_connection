@@ -549,14 +549,26 @@ const createUser = async (
     ]);
   }
 
-  const newUser = await prisma.user.create({
-    data: {
-      // IDs are explicit because current Prisma schema uses `id String @id` without default().
-      id: generateOid(),
-      ...(payload.email ? { email: payload.email } : {}),
-      ...(payload.phoneNumber ? { phoneNumber: payload.phoneNumber } : {}),
-      ...(payload.fcmToken ? { fcmToken: payload.fcmToken } : {}),
-    },
+  const newUser = await prisma.$transaction(async (tx) => {
+    const createdUser = await tx.user.create({
+      data: {
+        // IDs are explicit because current Prisma schema uses `id String @id` without default().
+        id: generateOid(),
+        ...(payload.email ? { email: payload.email } : {}),
+        ...(payload.phoneNumber ? { phoneNumber: payload.phoneNumber } : {}),
+        ...(payload.fcmToken ? { fcmToken: payload.fcmToken } : {}),
+      },
+    });
+
+    // Keep profile bootstrapping during signup so downstream profile reads never fail.
+    await tx.profile.create({
+      data: {
+        id: generateOid(),
+        userId: createdUser.id,
+      },
+    });
+
+    return createdUser;
   });
 
   const newUserContact = newUser.email || newUser.phoneNumber;
