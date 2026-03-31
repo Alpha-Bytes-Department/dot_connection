@@ -11,7 +11,7 @@ let pgPool = globalThis.pgPool;
 
 if (!pgPool) {
   globalThis.pgPool = pgPool = new pg.Pool({
-    connectionString: config.database_url_old,
+    connectionString: config.database_url,
     max: 20,
     min: 2,
     idleTimeoutMillis: 30000,

@@ -1,4 +1,3 @@
-import { randomUUID } from "crypto";
 import { StatusCodes } from "http-status-codes";
 import AppError from "../../errors/AppError";
 import UserCacheManage from "./user.cacheManage";
@@ -15,6 +14,7 @@ import {
 } from "../../../shared/personaService";
 import { Prisma, UserRole, UserStatus } from "@prisma/client";
 import { prisma } from "../../../DB/prisma";
+import generateOid from "../../../util/generateOid";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_REGEX = /^\+[1-9]\d{1,14}$/;
@@ -552,7 +552,7 @@ const createUser = async (
   const newUser = await prisma.user.create({
     data: {
       // IDs are explicit because current Prisma schema uses `id String @id` without default().
-      id: randomUUID(),
+      id: generateOid(),
       ...(payload.email ? { email: payload.email } : {}),
       ...(payload.phoneNumber ? { phoneNumber: payload.phoneNumber } : {}),
       ...(payload.fcmToken ? { fcmToken: payload.fcmToken } : {}),
@@ -605,7 +605,7 @@ const addUserFields = async (userId: string, fields: Partial<TUser>) => {
 
 const buildProfileWriteData = (fields: any) => {
   const data: Prisma.ProfileUncheckedCreateInput = {
-    id: randomUUID(),
+    id: generateOid(),
     userId: "",
   };
 
@@ -699,7 +699,7 @@ const addProfileFields = async (userId: string, fields: any) => {
     where: { userId },
     update: mutable,
     create: {
-      id: randomUUID(),
+      id: generateOid(),
       userId,
       ...mutable,
     },
