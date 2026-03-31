@@ -5,7 +5,7 @@ import config from '../../config';
 
 import { jwtHelper } from '../../helpers/jwtHelper';
 import AppError from '../errors/AppError';
-import { User } from '../modules-old/user/user.model';
+import { prisma } from '../../DB/prisma';
 
 const auth =
   (...roles: string[]) =>
@@ -25,7 +25,9 @@ const auth =
         //set user to header
         req.user = verifyUser;
         console.log(verifyUser);
-        const user = await User.isExistUserById(verifyUser._id);
+        const user = await prisma.user.findUnique({
+          where: { id: verifyUser._id },
+        });
 
         if (!user) {
           throw new AppError(
