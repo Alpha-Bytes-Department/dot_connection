@@ -1,0 +1,25 @@
+model Chat {
+  /// NOTE: IDs are currently app-assigned to match legacy Mongo ObjectId imports.
+  /// If you create new records without supplying `id`, add `@default(cuid())` (or uuid()).
+  id String @id
+
+  userOneId String
+  userTwoId String
+
+  userOne User @relation("ChatUserOne", fields: [userOneId], references: [id], onDelete: Cascade)
+  userTwo User @relation("ChatUserTwo", fields: [userTwoId], references: [id], onDelete: Cascade)
+
+  lastMessageId   String?   @unique
+  lastMessage     Message?  @relation("ChatLastMessage", fields: [lastMessageId], references: [id], onDelete: SetNull)
+  lastMessageTime DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// IMPORTANT: pair order matters in relational unique constraints.
+  /// Always canonicalize user order in service layer before writes (e.g. sort IDs),
+  /// otherwise duplicated mirrored rows (A,B) and (B,A) can be created.
+  @@unique([userOneId, userTwoId])
+  @@index([lastMessageTime(sort: Desc)])
+  @@map("chats")
+}

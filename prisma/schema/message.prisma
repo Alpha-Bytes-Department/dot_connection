@@ -1,0 +1,35 @@
+model Message {
+  /// NOTE: IDs are currently app-assigned to match legacy Mongo ObjectId imports.
+  /// If you create new records without supplying `id`, add `@default(cuid())` (or uuid()).
+  id String @id
+
+  senderId   String
+  receiverId String
+
+  sender   User @relation("MessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User @relation("MessageReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  message String?
+
+  image  String?
+  audio  String?
+  images String[] @default([])
+
+  /// IMPORTANT: in Mongoose, `messageType` was derived from payload in a pre-save hook.
+  /// Keep derivation in app/service layer when creating/updating messages.
+  messageType MessageType @default(text)
+
+  isRead Boolean   @default(false)
+  readAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  chatAsLastMessage Chat? @relation("ChatLastMessage")
+
+  @@index([senderId, receiverId, createdAt(sort: Desc)])
+  @@index([receiverId, isRead])
+  @@index([senderId, receiverId, isRead])
+  @@index([createdAt(sort: Desc)])
+  @@map("messages")
+}

@@ -1,0 +1,21 @@
+model Block {
+  /// NOTE: IDs are currently app-assigned to match legacy Mongo ObjectId imports.
+  /// If you create new records without supplying `id`, add `@default(cuid())` (or uuid()).
+  id String @id
+
+  blockerId String
+  blockedId String
+
+  blocker User @relation("BlockBlocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("BlockBlocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([blockerId, blockedId])
+  /// IMPORTANT: legacy model prevented self-blocking.
+  /// Enforce `blockerId != blockedId` in service logic (or DB CHECK constraint).
+  @@index([blockerId])
+  @@index([blockedId])
+  @@map("blocks")
+}

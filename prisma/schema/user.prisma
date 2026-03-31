@@ -1,0 +1,69 @@
+model User {
+  /// NOTE: IDs are currently app-assigned to match legacy Mongo ObjectId imports.
+  /// If you create new records without supplying `id`, add `@default(cuid())` (or uuid()).
+  id String @id
+
+  firstName String?
+  lastName  String?
+
+  /// IMPORTANT: legacy rule required at least one of `email` or `phoneNumber`.
+  /// Prisma cannot express this XOR/OR rule in schema attributes alone.
+  /// Enforce in service validation (or DB CHECK constraint via SQL migration).
+  email       String? @unique
+  phoneNumber String? @unique
+
+  image String?
+
+  role   UserRole   @default(USER)
+  status UserStatus @default(active)
+
+  verified               Boolean @default(false)
+  allProfileFieldsFilled Boolean @default(false)
+  allUserFieldsFilled    Boolean @default(false)
+  isProfileVerified      Boolean @default(false)
+  isPersonaVerified      Boolean @default(false)
+
+  fcmToken String?
+
+  authOneTimeCode      String?
+  authExpireAt         DateTime?
+  authLoginAttempts    Int       @default(0)
+  authLastLoginAttempt DateTime?
+
+  lastLoginAt DateTime?
+  dateOfBirth DateTime?
+
+  pushNotification Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile Profile?
+
+  matchesFrom Match[] @relation("MatchFromUser")
+  matchesTo   Match[] @relation("MatchToUser")
+
+  connectionRequestsFrom ConnectionRequest[] @relation("ConnectionRequestFrom")
+  connectionRequestsTo   ConnectionRequest[] @relation("ConnectionRequestTo")
+
+  connectionsAsOne Connection[] @relation("ConnectionUserOne")
+  connectionsAsTwo Connection[] @relation("ConnectionUserTwo")
+
+  chatsAsOne Chat[] @relation("ChatUserOne")
+  chatsAsTwo Chat[] @relation("ChatUserTwo")
+
+  messagesSent     Message[] @relation("MessageSender")
+  messagesReceived Message[] @relation("MessageReceiver")
+
+  notifications Notification[]
+
+  blocksInitiated Block[] @relation("BlockBlocker")
+  blocksReceived  Block[] @relation("BlockBlocked")
+
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+  @@index([verified, allProfileFieldsFilled, allUserFieldsFilled, status])
+  @@index([lastLoginAt(sort: Desc)])
+  @@index([dateOfBirth])
+  @@map("users")
+}

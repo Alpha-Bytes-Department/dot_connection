@@ -1,0 +1,34 @@
+model Notification {
+  /// NOTE: IDs are currently app-assigned to match legacy Mongo ObjectId imports.
+  /// If you create new records without supplying `id`, add `@default(cuid())` (or uuid()).
+  id String @id
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title String
+  body  String
+
+  type NotificationType
+
+  relatedId String?
+
+  isRead Boolean @default(false)
+
+  /// NOTE: legacy schema used Map<String, String>; JSON is intentionally more flexible.
+  /// Keep app validation if only string key/value pairs are allowed.
+  data Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([type])
+  @@index([isRead])
+  @@index([userId, isRead])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, type, isRead])
+  /// IMPORTANT: Mongo TTL index behavior is not automatic in Postgres.
+  /// Add a scheduled cleanup job if notifications should expire (e.g. 30 days).
+  @@map("notifications")
+}

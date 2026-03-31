@@ -1,0 +1,22 @@
+model Connection {
+  /// NOTE: IDs are currently app-assigned to match legacy Mongo ObjectId imports.
+  /// If you create new records without supplying `id`, add `@default(cuid())` (or uuid()).
+  id String @id
+
+  userOneId String
+  userTwoId String
+
+  userOne User @relation("ConnectionUserOne", fields: [userOneId], references: [id], onDelete: Cascade)
+  userTwo User @relation("ConnectionUserTwo", fields: [userTwoId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// IMPORTANT: pair order matters in relational unique constraints.
+  /// Always canonicalize user order in service layer before writes (e.g. sort IDs),
+  /// otherwise duplicated mirrored rows (A,B) and (B,A) can be created.
+  @@unique([userOneId, userTwoId])
+  @@index([userOneId, userTwoId])
+  @@index([createdAt(sort: Desc)])
+  @@map("connections")
+}
