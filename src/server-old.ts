@@ -4,7 +4,7 @@ import http from 'http';
 import { errorLogger, logger } from './shared/logger';
 import redisClient from './redis/redisClient';
 
-import app from './app';
+import app from './app-old';
 import config from './config';
 import seedSuperAdmin from './DB';
 import { setupSocket } from './socket/socket';
