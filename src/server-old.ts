@@ -1,13 +1,14 @@
 import colors from 'colors';
+import mongoose from 'mongoose';
 import http from 'http';
 import { errorLogger, logger } from './shared/logger';
 import redisClient from './redis/redisClient';
 
 import app from './app';
 import config from './config';
+import seedSuperAdmin from './DB';
 import { setupSocket } from './socket/socket';
 import { FCMService } from './shared/fcm.service';
-import { connectDB } from './DB/prisma';
 
 //uncaught exception
 process.on('uncaughtException', (error) => {
@@ -19,12 +20,15 @@ export const server = http.createServer(app);
 
 async function main() {
   try {
-    const disconnectDB = await connectDB();
-
-    process.on('SIGINT', () => {
-      disconnectDB();
-      process.exit(0);
+    await mongoose.connect(config.database_url_old as string, {
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 15000,
+      socketTimeoutMS: 45000,
+      bufferCommands: false,
     });
+    await seedSuperAdmin();
+
+    logger.info(colors.green('🚀 Database connected successfully'));
 
     const port =
       typeof config.port === 'number' ? config.port : Number(config.port);
