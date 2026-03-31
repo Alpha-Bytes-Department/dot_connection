@@ -10,15 +10,33 @@ import colors from 'colors';
 let pgPool = globalThis.pgPool;
 
 if (!pgPool) {
+  const poolMax = Number(process.env.PG_POOL_MAX ?? 20);
+  const poolMin = Number(process.env.PG_POOL_MIN ?? 2);
+  const idleTimeoutMs = Number(process.env.PG_IDLE_TIMEOUT_MS ?? 300000); // 5 min
+  const connectionTimeoutMs = Number(
+    process.env.PG_CONNECTION_TIMEOUT_MS ?? 60000, // 60s
+  );
+  const statementTimeoutMs = Number(
+    process.env.PG_STATEMENT_TIMEOUT_MS ?? 0, // 0 disables statement timeout
+  );
+  const idleInTxTimeoutMs = Number(
+    process.env.PG_IDLE_IN_TX_TIMEOUT_MS ?? 0, // 0 disables forced tx timeout
+  );
+
   globalThis.pgPool = pgPool = new pg.Pool({
     connectionString: config.database_url,
-    max: 20,
-    min: 2,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 10000,
+    max: poolMax,
+    min: poolMin,
+    idleTimeoutMillis: idleTimeoutMs,
+    connectionTimeoutMillis: connectionTimeoutMs,
     maxUses: 7500,
-    statement_timeout: 30000,
-    idle_in_transaction_session_timeout: 60000,
+    statement_timeout: statementTimeoutMs,
+    idle_in_transaction_session_timeout: idleInTxTimeoutMs,
+    keepAlive: true,
+  });
+
+  pgPool.on('error', (error) => {
+    console.error(colors.red('Postgres pool error:'), error?.message);
   });
 }
 
@@ -45,7 +63,30 @@ export async function connectDB() {
       };
     }
 
-    await prisma.$connect();
+    const maxAttempts = 5;
+    const baseDelayMs = 1500;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await prisma.$connect();
+        break;
+      } catch (error: any) {
+        const isLast = attempt === maxAttempts;
+        console.error(
+          colors.yellow(
+            `Database connect attempt ${attempt}/${maxAttempts} failed: ${error?.message}`,
+          ),
+        );
+
+        if (isLast) {
+          throw error;
+        }
+
+        const delayMs = baseDelayMs * attempt;
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+
     console.log(colors.green('Connected to the database.'));
 
     return async () => {

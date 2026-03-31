@@ -4,6 +4,7 @@ import { UserServices } from "./user.service";
 import catchAsync from "../../../shared/catchAsync";
 import sendResponse from "../../../shared/sendResponse";
 import { logger } from "../../../shared/logger";
+import { toPublicUploadPath } from "../../../shared/uploadPath";
 
 const createUser = catchAsync(async (req: Request, res: Response) => {
   const result = await UserServices.createUser(req.body);
@@ -123,7 +124,7 @@ const updateUserByToken = catchAsync(async (req: Request, res: Response) => {
   const userdata = JSON.parse(req.body.data);
   let image = null;
   if (req.files && "image" in req.files && req.files.image[0]) {
-    image = req.files.image[0].path.replace("/app/uploads", "");
+    image = toPublicUploadPath(req.files.image[0].path);
   }
   const user = { ...userdata, image };
   if (user.image === null) delete user.image;
@@ -217,9 +218,7 @@ const updateProfileByToken = catchAsync(async (req: Request, res: Response) => {
   let newImages: string[] = [];
 
   if (req.files && "image" in req.files && Array.isArray(req.files.image)) {
-    newImages = req.files.image.map((file: any) =>
-      file.path.replace("/app/uploads", ""),
-    );
+    newImages = req.files.image.map((file: any) => toPublicUploadPath(file.path));
   }
 
   const profile = { ...profileData, newPhotos: newImages };

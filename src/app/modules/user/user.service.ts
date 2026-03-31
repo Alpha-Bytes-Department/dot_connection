@@ -155,6 +155,12 @@ const parseDateIfPresent = (value: unknown): Date | undefined => {
   return Number.isNaN(date.getTime()) ? undefined : date;
 };
 
+const normalizeLifestyleEnum = (value: unknown) => {
+  if (typeof value !== "string") return value;
+  if (value === "Prefer Not to Say") return "Prefer_Not_to_Say";
+  return value;
+};
+
 const canAttemptLogin = (user: any): boolean => {
   const maxAttempts = 5;
   const lockoutTime = 15 * 60 * 1000;
@@ -640,8 +646,12 @@ const buildProfileWriteData = (fields: any) => {
   if (fields.school !== undefined) mutable.school = fields.school;
   if (fields.hometown !== undefined) mutable.hometown = fields.hometown;
   if (fields.jobTitle !== undefined) mutable.jobTitle = fields.jobTitle;
-  if (fields.smokingStatus !== undefined) mutable.smokingStatus = fields.smokingStatus;
-  if (fields.drinkingStatus !== undefined) mutable.drinkingStatus = fields.drinkingStatus;
+  if (fields.smokingStatus !== undefined) {
+    mutable.smokingStatus = normalizeLifestyleEnum(fields.smokingStatus);
+  }
+  if (fields.drinkingStatus !== undefined) {
+    mutable.drinkingStatus = normalizeLifestyleEnum(fields.drinkingStatus);
+  }
   if (fields.studyLevel !== undefined) mutable.studyLevel = fields.studyLevel;
   if (fields.religious !== undefined) mutable.religious = fields.religious;
 
