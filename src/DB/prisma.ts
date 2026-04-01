@@ -11,29 +11,46 @@ let pgPool = globalThis.pgPool;
 
 if (!pgPool) {
   const poolMax = Number(process.env.PG_POOL_MAX ?? 20);
-  const poolMin = Number(process.env.PG_POOL_MIN ?? 2);
-  const idleTimeoutMs = Number(process.env.PG_IDLE_TIMEOUT_MS ?? 300000); // 5 min
+  // Avoid keeping warm clients when the host drops idle TCP (common with cloud DBs).
+  const poolMin = Number(process.env.PG_POOL_MIN ?? 0);
+  const idleTimeoutMs = Number(process.env.PG_IDLE_TIMEOUT_MS ?? 60000); // 1 min idle eviction
   const connectionTimeoutMs = Number(
-    process.env.PG_CONNECTION_TIMEOUT_MS ?? 60000, // 60s
+    process.env.PG_CONNECTION_TIMEOUT_MS ?? 60000,
   );
-  const statementTimeoutMs = Number(
-    process.env.PG_STATEMENT_TIMEOUT_MS ?? 0, // 0 disables statement timeout
-  );
-  const idleInTxTimeoutMs = Number(
-    process.env.PG_IDLE_IN_TX_TIMEOUT_MS ?? 0, // 0 disables forced tx timeout
+  const statementTimeoutMs = Number(process.env.PG_STATEMENT_TIMEOUT_MS ?? 0);
+  const idleInTxTimeoutMs = Number(process.env.PG_IDLE_IN_TX_TIMEOUT_MS ?? 0);
+  // Recycle sockets before the server/proxy kills them (fixes "worked once, then timeout").
+  const maxLifetimeSeconds = Number(
+    process.env.PG_MAX_LIFETIME_SECONDS ?? 300,
   );
 
-  globalThis.pgPool = pgPool = new pg.Pool({
+  const poolConfig: pg.PoolConfig = {
     connectionString: config.database_url,
     max: poolMax,
     min: poolMin,
     idleTimeoutMillis: idleTimeoutMs,
     connectionTimeoutMillis: connectionTimeoutMs,
     maxUses: 7500,
-    statement_timeout: statementTimeoutMs,
-    idle_in_transaction_session_timeout: idleInTxTimeoutMs,
     keepAlive: true,
-  });
+  };
+
+  if (maxLifetimeSeconds > 0) {
+    poolConfig.maxLifetimeSeconds = maxLifetimeSeconds;
+  }
+
+  if (statementTimeoutMs > 0) {
+    (poolConfig as pg.PoolConfig & { statement_timeout?: number }).statement_timeout =
+      statementTimeoutMs;
+  }
+  if (idleInTxTimeoutMs > 0) {
+    (
+      poolConfig as pg.PoolConfig & {
+        idle_in_transaction_session_timeout?: number;
+      }
+    ).idle_in_transaction_session_timeout = idleInTxTimeoutMs;
+  }
+
+  globalThis.pgPool = pgPool = new pg.Pool(poolConfig);
 
   pgPool.on('error', (error) => {
     console.error(colors.red('Postgres pool error:'), error?.message);
