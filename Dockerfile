@@ -1,47 +1,25 @@
-# FROM node:22.13.0
-
-# WORKDIR /app
-
-# COPY package.json pnpm-lock.yaml ./
-
-# RUN npm install -g pnpm && pnpm install --frozen-lockfile
-
-# COPY . .
-
-# # RUN pnpm build
-
-# EXPOSE 5009
-
-# CMD ["pnpm", "run","dev"]
-
-############################################################
-
-
-FROM node:22.13.0
+FROM node:22-alpine
 
 WORKDIR /app
 
-# Set up environment variables for pnpm
+RUN corepack enable
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
-ENV SHELL="/bin/bash"
+ENV NODE_ENV=production
 
+# Install dependencies
 COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
-# Install pnpm first
-RUN npm install -g pnpm && mkdir -p /pnpm
-
-# Install ALL dependencies (including dev dependencies for TypeScript compilation)
-RUN pnpm install
-
+# Copy source
 COPY . .
 
-# Install typescript globally and build
-RUN pnpm install -g typescript && pnpm build
+# Generate Prisma client
+RUN pnpm prisma:generate
 
-
-# RUN pnpm install --production
+# Compile TypeScript
+RUN pnpm build
 
 EXPOSE 5009
 
-CMD ["pnpm","run","dev"]
+CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy && node dist/server.js"]
