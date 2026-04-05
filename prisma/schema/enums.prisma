@@ -1,0 +1,88 @@
+enum UserRole {
+  ADMIN
+  USER
+}
+
+enum UserStatus {
+  active
+  delete
+}
+
+enum MatchAction {
+  skip
+  love
+  map
+}
+
+enum ConnectionRequestStatus {
+  pending
+  accepted
+  rejected
+}
+
+enum ProfileLookingFor {
+  friendship
+  dating
+  relationship
+  networking
+}
+
+enum ProfileGender {
+  male
+  female
+  other
+}
+
+enum ProfileInterestedIn {
+  male
+  female
+  everyone
+}
+
+enum ProfileSmokingStatus {
+  Yes
+  Occasionally
+  Prefer_Not_to_Say @map("Prefer Not to Say")
+  No
+}
+
+enum ProfileDrinkingStatus {
+  Yes
+  Occasionally
+  Prefer_Not_to_Say @map("Prefer Not to Say")
+  No
+}
+
+enum ProfileStudyLevel {
+  highSchool
+  underGraduation
+  postGraduation
+  preferNotToSay
+}
+
+enum ProfileReligious {
+  buddhist
+  christian
+  muslim
+  atheist
+  catholic
+  hindu
+  spiritual
+  jewish
+  agnostic
+  other
+  prefer_not_to_say
+}
+
+enum MessageType {
+  text
+  image
+  audio
+}
+
+enum NotificationType {
+  match
+  message
+  connection_request
+  general
+}

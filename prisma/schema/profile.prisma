@@ -1,0 +1,69 @@
+model Profile {
+  /// NOTE: IDs are currently app-assigned to match legacy Mongo ObjectId imports.
+  /// If you create new records without supplying `id`, add `@default(cuid())` (or uuid()).
+  id String @id
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  bio String?
+
+  /// GeoJSON-like payload: { type: "Point", coordinates: [lng, lat], address?: string }
+  /// NOTE: this does not recreate Mongo 2dsphere behavior by itself.
+  /// For distance/nearby queries, consider PostGIS and a geography/geometry column.
+  location  Json?
+  address   String?
+  latitude  Float?
+  longitude Float?
+
+  photos    String[] @default([])
+  interests String[] @default([])
+
+  lookingFor ProfileLookingFor?
+
+  maxDistance Int  @default(25)
+  ageRangeMin Int?
+  ageRangeMax Int?
+
+  gender       ProfileGender?
+  interestedIn ProfileInterestedIn?
+
+  height Int?
+
+  workplace String?
+  school    String?
+  hometown  String?
+  jobTitle  String?
+
+  smokingStatus  ProfileSmokingStatus?
+  drinkingStatus ProfileDrinkingStatus?
+  studyLevel     ProfileStudyLevel?
+  religious      ProfileReligious?      @default(prefer_not_to_say)
+
+  hiddenGender         Boolean @default(false)
+  hiddenHometown       Boolean @default(false)
+  hiddenWorkplace      Boolean @default(false)
+  hiddenJobTitle       Boolean @default(false)
+  hiddenSchool         Boolean @default(false)
+  hiddenStudyLevel     Boolean @default(false)
+  hiddenReligious      Boolean @default(false)
+  hiddenDrinkingStatus Boolean @default(false)
+  hiddenSmokingStatus  Boolean @default(false)
+
+  profileViews Int      @default(0)
+  lastActive   DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([gender])
+  @@index([interests])
+  @@index([ageRangeMin, ageRangeMax])
+  @@index([lastActive(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@index([userId, gender, interestedIn])
+  @@index([gender, interestedIn])
+  @@index([latitude, longitude])
+  @@index([address])
+  @@map("profiles")
+}

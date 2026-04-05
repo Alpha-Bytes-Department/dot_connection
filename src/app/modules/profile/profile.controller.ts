@@ -4,8 +4,6 @@ import catchAsync from "../../../shared/catchAsync";
 import sendResponse from "../../../shared/sendResponse";
 import { ProfileServices } from "./profile.service";
 
-
-
 const getAllProfiles = catchAsync(async (req: Request, res: Response) => {
   const profilesRes = await ProfileServices.getAllProfiles(req.query);
 
@@ -41,11 +39,6 @@ const getMyProfile = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
-
-
-
-
-// Search profiles
 const searchProfiles = catchAsync(async (req: Request, res: Response) => {
   const profilesRes = await ProfileServices.searchProfiles(req.query);
 
@@ -58,7 +51,6 @@ const searchProfiles = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
-// Update preferences
 const updatePreferences = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user._id;
   const profile = await ProfileServices.updatePreferences(userId, req.body);

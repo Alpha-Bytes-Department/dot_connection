@@ -6,9 +6,7 @@ import { ChatServices } from "./chat.service";
 
 const getChatList = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user?._id;
-  
   const result = await ChatServices.getUserChatList(userId);
-  
   sendResponse(res, {
     statusCode: StatusCodes.OK,
     success: true,

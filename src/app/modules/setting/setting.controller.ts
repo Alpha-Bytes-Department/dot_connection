@@ -6,9 +6,7 @@ import { settingService } from "./setting.service";
 
 const createAboutUs = catchAsync(async (req: Request, res: Response) => {
   const { aboutUs } = req.body;
-  
   const result = await settingService.createAboutUs(aboutUs);
-  
   sendResponse(res, {
     statusCode: StatusCodes.OK,
     success: true,
@@ -19,9 +17,7 @@ const createAboutUs = catchAsync(async (req: Request, res: Response) => {
 
 const createPrivacyPolicy = catchAsync(async (req: Request, res: Response) => {
   const { privacyPolicy } = req.body;
-  
   const result = await settingService.createPrivacyPolicy(privacyPolicy);
-  
   sendResponse(res, {
     statusCode: StatusCodes.OK,
     success: true,
@@ -32,9 +28,7 @@ const createPrivacyPolicy = catchAsync(async (req: Request, res: Response) => {
 
 const createTermsAndConditions = catchAsync(async (req: Request, res: Response) => {
   const { termsAndConditions } = req.body;
-  
   const result = await settingService.createTermsAndConditions(termsAndConditions);
-  
   sendResponse(res, {
     statusCode: StatusCodes.OK,
     success: true,
@@ -45,7 +39,6 @@ const createTermsAndConditions = catchAsync(async (req: Request, res: Response) 
 
 const getSettings = catchAsync(async (req: Request, res: Response) => {
   const result = await settingService.getSettings();
-  
   sendResponse(res, {
     statusCode: StatusCodes.OK,
     success: true,

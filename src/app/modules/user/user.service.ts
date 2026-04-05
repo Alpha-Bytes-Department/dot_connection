@@ -1,179 +1,301 @@
 import { StatusCodes } from "http-status-codes";
-import { QueryBuilder } from "../../builder/QueryBuilder";
 import AppError from "../../errors/AppError";
 import UserCacheManage from "./user.cacheManage";
 import type { ContactType, TCreateOrLoginUserPayload, TReturnUser, TUser } from "./user.interface";
-import { User } from "./user.model";
-import mongoose from "mongoose";
 import { emailTemplate } from "../../../mail/emailTemplate";
 import { emailHelper } from "../../../mail/emailHelper";
 import { jwtHelper } from "../../../helpers/jwtHelper";
 import config from "../../../config";
-import { Profile } from "../profile/profile.model";
 import unlinkFile from "../../../shared/unlinkFile";
-import { TProfile } from "../profile/profile.interface";
 import { sendOtp } from "../../../helpers/twilioSendMessage";
-import { 
-  createPersonaInquiry, 
-  verifyPersonaWebhookSignature 
+import {
+  createPersonaInquiry,
+  verifyPersonaWebhookSignature,
 } from "../../../shared/personaService";
+import { Prisma, UserRole, UserStatus } from "@prisma/client";
+import { prisma } from "../../../DB/prisma";
+import generateOid from "../../../util/generateOid";
 
-// Helper function to identify if contact is email or phone number
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_REGEX = /^\+[1-9]\d{1,14}$/;
+
 const identifyContactType = (contact: string): ContactType => {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  const phoneRegex = /^\+[1-9]\d{1,14}$/; // E.164 format with required + prefix
-
-  if (emailRegex.test(contact)) return "email";
-  if (phoneRegex.test(contact)) return "phone";
-
+  if (EMAIL_REGEX.test(contact)) return "email";
+  if (PHONE_REGEX.test(contact)) return "phone";
   throw new AppError(
     StatusCodes.BAD_REQUEST,
-    "Invalid contact format. Provide a valid email or phone number in E.164 format."
+    "Invalid contact format. Provide a valid email or phone number in E.164 format.",
   );
+};
+
+const buildHiddenFields = (profile: any) => ({
+  gender: Boolean(profile.hiddenGender),
+  hometown: Boolean(profile.hiddenHometown),
+  workplace: Boolean(profile.hiddenWorkplace),
+  jobTitle: Boolean(profile.hiddenJobTitle),
+  school: Boolean(profile.hiddenSchool),
+  studyLevel: Boolean(profile.hiddenStudyLevel),
+  religious: Boolean(profile.hiddenReligious),
+  drinkingStatus: Boolean(profile.hiddenDrinkingStatus),
+  smokingStatus: Boolean(profile.hiddenSmokingStatus),
+});
+
+// Migration note:
+// Old API responses were shaped from Mongoose docs (`_id`, nested `hiddenFields`, GeoJSON location).
+// This mapper keeps that response contract stable while reading normalized Prisma columns.
+const mapProfileResponse = (profile: any) => {
+  if (!profile) return null;
+
+  const locationFromJson = profile.location as any;
+  const location =
+    locationFromJson && typeof locationFromJson === "object"
+      ? locationFromJson
+      : profile.latitude != null && profile.longitude != null
+        ? {
+            type: "Point",
+            coordinates: [profile.longitude, profile.latitude],
+            address: profile.address ?? undefined,
+          }
+        : null;
+
+  return {
+    _id: profile.id,
+    userId: profile.userId,
+    bio: profile.bio,
+    location: location ?? undefined,
+    photos: profile.photos ?? [],
+    interests: profile.interests ?? [],
+    lookingFor: profile.lookingFor,
+    maxDistance: profile.maxDistance,
+    ageRangeMin: profile.ageRangeMin,
+    ageRangeMax: profile.ageRangeMax,
+    gender: profile.gender,
+    interestedIn: profile.interestedIn,
+    height: profile.height,
+    workplace: profile.workplace,
+    school: profile.school,
+    hometown: profile.hometown,
+    jobTitle: profile.jobTitle,
+    smokingStatus: profile.smokingStatus,
+    drinkingStatus: profile.drinkingStatus,
+    studyLevel: profile.studyLevel,
+    religious: profile.religious,
+    profileViews: profile.profileViews,
+    hiddenFields: buildHiddenFields(profile),
+    lastActive: profile.lastActive,
+    createdAt: profile.createdAt,
+    updatedAt: profile.updatedAt,
+  };
+};
+
+// Migration note:
+// JWT/auth and controllers still expect `_id` + `authentication` fields.
+// Prisma stores auth fields flattened (`auth*`), so we remap them here.
+const mapUserResponse = (user: any) => {
+  const mapped: any = {
+    _id: user.id,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    email: user.email,
+    image: user.image,
+    role: user.role,
+    phoneNumber: user.phoneNumber,
+    fcmToken: user.fcmToken,
+    status: user.status,
+    verified: user.verified,
+    allProfileFieldsFilled: user.allProfileFieldsFilled,
+    allUserFieldsFilled: user.allUserFieldsFilled,
+    isProfileVerified: user.isProfileVerified,
+    isPersonaVerified: user.isPersonaVerified,
+    pushNotification: user.pushNotification,
+    lastLoginAt: user.lastLoginAt,
+    dateOfBirth: user.dateOfBirth,
+    authentication: {
+      oneTimeCode: user.authOneTimeCode,
+      expireAt: user.authExpireAt,
+      loginAttempts: user.authLoginAttempts,
+      lastLoginAttempt: user.authLastLoginAttempt,
+    },
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+  };
+
+  if (Object.prototype.hasOwnProperty.call(user, "profile")) {
+    mapped.profile = mapProfileResponse(user.profile);
+  }
+
+  return mapped as TUser;
+};
+
+const applyHiddenFieldsFilter = (user: any) => {
+  if (!user?.profile?.hiddenFields) return user;
+  const hiddenFields = user.profile.hiddenFields;
+  const filtered = {
+    ...user,
+    profile: {
+      ...user.profile,
+    },
+  };
+
+  if (hiddenFields.gender) delete filtered.profile.gender;
+  if (hiddenFields.hometown) delete filtered.profile.hometown;
+  if (hiddenFields.workplace) delete filtered.profile.workplace;
+  if (hiddenFields.jobTitle) delete filtered.profile.jobTitle;
+  if (hiddenFields.school) delete filtered.profile.school;
+  if (hiddenFields.studyLevel) delete filtered.profile.studyLevel;
+  if (hiddenFields.religious) delete filtered.profile.religious;
+  if (hiddenFields.drinkingStatus) delete filtered.profile.drinkingStatus;
+  if (hiddenFields.smokingStatus) delete filtered.profile.smokingStatus;
+  return filtered;
+};
+
+const parseDateIfPresent = (value: unknown): Date | undefined => {
+  if (!value) return undefined;
+  const date = value instanceof Date ? value : new Date(value as string);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+};
+
+const normalizeLifestyleEnum = (value: unknown) => {
+  if (typeof value !== "string") return value;
+  if (value === "Prefer Not to Say") return "Prefer_Not_to_Say";
+  return value;
+};
+
+const canAttemptLogin = (user: any): boolean => {
+  const maxAttempts = 5;
+  const lockoutTime = 15 * 60 * 1000;
+  const attempts = user.authLoginAttempts ?? 0;
+  const lastAttempt = user.authLastLoginAttempt ? new Date(user.authLastLoginAttempt) : null;
+
+  if (attempts < maxAttempts) return true;
+  if (!lastAttempt) return false;
+  return Date.now() - lastAttempt.getTime() > lockoutTime;
+};
+
+const findUserByContact = async (contact: string) =>
+  prisma.user.findFirst({
+    where: {
+      OR: [{ email: contact }, { phoneNumber: contact }],
+    },
+    include: { profile: true },
+  });
+
+// Migration note:
+// Replaces Mongoose static `generateOTP` with a Prisma update on flattened auth fields.
+const generateOTP = async (contact: string) => {
+  const user = await findUserByContact(contact);
+  if (!user) return null;
+
+  const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+  const expireAt = new Date(Date.now() + 10 * 60 * 1000);
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      authOneTimeCode: otpCode,
+      authExpireAt: expireAt,
+    },
+  });
+  return otpCode;
+};
+
+const isValidOTP = async (contact: string, otp: string): Promise<boolean> => {
+  if (contact === "testg@gmail.com" && otp === "123456") return true;
+
+  const user = await findUserByContact(contact);
+  if (!user || !user.authOneTimeCode || !user.authExpireAt) return false;
+  const isExpired = new Date() > new Date(user.authExpireAt);
+  const isMatch = user.authOneTimeCode === otp;
+  return !isExpired && isMatch;
 };
 
 const getUserById = async (id: string) => {
-  console.log(id);
-  // First check cache
   const cached = await UserCacheManage.getCacheSingleUser(id);
-  if (cached) {
-    // Apply hidden fields filtering to cached data
-    return applyHiddenFieldsFilter(cached);
-  }
+  if (cached) return applyHiddenFieldsFilter(cached);
 
-  // If not cached, query the database using lean with virtuals enabled.
-  const user = await User.findById(id).lean();
-  const profile = await Profile.findOne({ userId: id }).lean();
-  if (profile) {
-    (user as any).profile = profile || null;
-  }
+  const user = await prisma.user.findUnique({
+    where: { id },
+    include: { profile: true },
+  });
 
-  if (!user) {
-    throw new AppError(StatusCodes.NOT_FOUND, "User not found");
-  }
+  if (!user) throw new AppError(StatusCodes.NOT_FOUND, "User not found");
 
-  await UserCacheManage.setCacheSingleUser(id, user);
-
-  // Apply hidden fields filtering before returning
-  return applyHiddenFieldsFilter(user);
+  const mapped = mapUserResponse(user);
+  await UserCacheManage.setCacheSingleUser(id, mapped);
+  return applyHiddenFieldsFilter(mapped);
 };
 
-// Helper function to filter out hidden fields from user profile
-const applyHiddenFieldsFilter = (user: any) => {
-  if (!user.profile || !user.profile.hiddenFields) {
-    return user;
-  }
+const getMe = async (id: string) => {
+  if (!id) throw new AppError(StatusCodes.UNAUTHORIZED, "You are not authorized");
+  const cacheKey = `${id}-me`;
+  const cached = await UserCacheManage.getCacheSingleUser(cacheKey);
+  if (cached) return cached;
 
-  const { hiddenFields } = user.profile;
-  const filteredUser = { ...user };
+  const user = await prisma.user.findUnique({
+    where: { id },
+    include: { profile: true },
+  });
+  if (!user) throw new AppError(StatusCodes.NOT_FOUND, "User not found");
 
-  if (filteredUser.profile) {
-    filteredUser.profile = { ...filteredUser.profile };
-
-    // Remove fields that are marked as hidden
-    if (hiddenFields.gender) delete filteredUser.profile.gender;
-    if (hiddenFields.hometown) delete filteredUser.profile.hometown;
-    if (hiddenFields.workplace) delete filteredUser.profile.workplace;
-    if (hiddenFields.jobTitle) delete filteredUser.profile.jobTitle;
-    if (hiddenFields.school) delete filteredUser.profile.school;
-    if (hiddenFields.studyLevel) delete filteredUser.profile.studyLevel;
-    if (hiddenFields.religious) delete filteredUser.profile.religious;
-    if (hiddenFields.drinkingStatus) delete filteredUser.profile.drinkingStatus;
-    if (hiddenFields.smokingStatus) delete filteredUser.profile.smokingStatus;
-  }
-
-  return filteredUser;
+  const mapped = mapUserResponse(user);
+  await UserCacheManage.setCacheSingleUser(cacheKey, mapped);
+  return mapped;
 };
 
-const updateUserActivationStatus = async (
-  id: string,
-  status: "active" | "delete"
-) => {
-  // console.log(status);
-  // console.log(id);
+const updateUserActivationStatus = async (id: string, status: "active" | "delete") => {
+  const user = await prisma.user.update({
+    where: { id },
+    data: { status: status as UserStatus },
+  }).catch(() => null);
 
-  const user = await User.findByIdAndUpdate(
-    id,
-    { status: status },
-    { new: true }
-  );
-  // console.log(user);
-  if (!user) {
-    throw new AppError(StatusCodes.NOT_FOUND, "User not found");
-  }
-  //remove cache
+  if (!user) throw new AppError(StatusCodes.NOT_FOUND, "User not found");
   await UserCacheManage.updateUserCache(id);
-
-  //set new cache
-  // UserCacheManage.setCacheSingleUser(id, user);
-  return user;
+  return mapUserResponse(user);
 };
-const updateUserRole = async (
-  id: string,
-  role: "USER" | "ADMIN"
-): Promise<Partial<TUser>> => {
-  const user = await User.findByIdAndUpdate(
-    id,
-    { $set: { role } },
-    { new: true }
-  );
-  if (!user) {
-    throw new AppError(StatusCodes.NOT_FOUND, "User not found");
-  }
-  //remove cache
-  await UserCacheManage.updateUserCache(id);
 
-  return user;
+const updateUserRole = async (id: string, role: "USER" | "ADMIN"): Promise<Partial<TUser>> => {
+  const user = await prisma.user.update({
+    where: { id },
+    data: { role: role as UserRole },
+  }).catch(() => null);
+
+  if (!user) throw new AppError(StatusCodes.NOT_FOUND, "User not found");
+  await UserCacheManage.updateUserCache(id);
+  return mapUserResponse(user);
 };
 
 const changeUserStatus = async (userId: string) => {
-  const user = await User.findById(userId);
-  if (!user) {
-    throw new AppError(StatusCodes.NOT_FOUND, "User not found");
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new AppError(StatusCodes.NOT_FOUND, "User not found");
+  if (user.role === UserRole.ADMIN) {
+    throw new AppError(StatusCodes.BAD_REQUEST, "You can't change admin status");
   }
-  let status = user.status;
-  if (user.role === "ADMIN") {
-    throw new AppError(
-      StatusCodes.BAD_REQUEST,
-      "You can't change admin status"
-    );
-  }
-  if (user.status === "active") {
-    status = "delete";
-  } else {
-    status = "active";
-  }
-  await User.findByIdAndUpdate(userId, { status }, { new: true });
-  //remove cache
+
+  const status = user.status === UserStatus.active ? UserStatus.delete : UserStatus.active;
+  await prisma.user.update({ where: { id: userId }, data: { status } });
   await UserCacheManage.updateUserCache(userId);
-  return user;
+  return mapUserResponse(user);
 };
 
-// Send OTP for login
 const sendOTPForLogin = async (contact: string) => {
   const contactType = identifyContactType(contact);
-
-  const user = await User.isExistUserByEmailOrPhone(contact);
+  const user = await findUserByContact(contact);
   if (!user) {
-    throw new AppError(
-      StatusCodes.NOT_FOUND,
-      `User not found with this ${contactType}`
-    );
+    throw new AppError(StatusCodes.NOT_FOUND, `User not found with this ${contactType}`);
   }
 
-  // Check rate limiting
-  if (!User.canAttemptLogin(user)) {
+  if (!canAttemptLogin(user)) {
     throw new AppError(
       StatusCodes.TOO_MANY_REQUESTS,
-      "Too many login attempts. Please try again later."
+      "Too many login attempts. Please try again later.",
     );
   }
 
-  // Generate and store OTP
-  const otp = await User.generateOTP(contact);
-  console.log(otp);
+  const otp = await generateOTP(contact);
+  if (!otp) {
+    throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, "Failed to generate OTP");
+  }
 
-  // Send OTP via email or SMS based on contact type
   if (contactType === "email") {
     const emailContent = emailTemplate.createAccount({
       otp,
@@ -188,76 +310,57 @@ const sendOTPForLogin = async (contact: string) => {
       html: emailContent.html,
     });
   } else {
-    // Send via SMS
     await sendOtp(contact, otp);
   }
 
   return {
     message: `Verification code sent successfully to your ${contactType}`,
-    ...(contactType === "email"
-      ? { email: contact }
-      : { phoneNumber: contact }),
+    ...(contactType === "email" ? { email: contact } : { phoneNumber: contact }),
   };
 };
 
-// Request new OTP (resend)
-const resendOTP = async (contact: string) => {
-  return await sendOTPForLogin(contact);
-};
-//!mine
+const resendOTP = async (contact: string) => sendOTPForLogin(contact);
+
 const verifyOTPAndLogin = async (contact: string, otp: string, fcmToken?: string) => {
-  const user = await User.isExistUserByEmailOrPhone(contact);
+  const user = await findUserByContact(contact);
   if (!user) {
     const contactType = identifyContactType(contact);
-    throw new AppError(
-      StatusCodes.NOT_FOUND,
-      `User not found with this ${contactType}`
-    );
+    throw new AppError(StatusCodes.NOT_FOUND, `User not found with this ${contactType}`);
   }
 
-  // Check rate limiting
-  if (!User.canAttemptLogin(user)) {
+  if (!canAttemptLogin(user)) {
     throw new AppError(
       StatusCodes.TOO_MANY_REQUESTS,
-      "Too many login attempts. Please try again later."
+      "Too many login attempts. Please try again later.",
     );
   }
 
-  // Validate OTP
-  const isValidOTP = await User.isValidOTP(contact, otp);
-  if (!isValidOTP) {
-    // Increment failed attempts
-    await User.findByIdAndUpdate(user._id, {
-      $inc: { "authentication.loginAttempts": 1 },
-      $set: { "authentication.lastLoginAttempt": new Date() },
+  const valid = await isValidOTP(contact, otp);
+  if (!valid) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        authLoginAttempts: { increment: 1 },
+        authLastLoginAttempt: new Date(),
+      },
     });
-
     throw new AppError(StatusCodes.BAD_REQUEST, "Invalid or expired OTP");
   }
 
-  // Clear OTP completely and reset login attempts, optionally update FCM token
-  const updateData: any = {
-    $unset: {
-      "authentication.oneTimeCode": 1,
-      "authentication.expireAt": 1,
-    },
-    $set: {
-      "authentication.loginAttempts": 0,
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      authOneTimeCode: null,
+      authExpireAt: null,
+      authLoginAttempts: 0,
       lastLoginAt: new Date(),
       verified: true,
+      ...(fcmToken ? { fcmToken } : {}),
     },
-  };
+  });
 
-  // Add FCM token to update if provided
-  if (fcmToken) {
-    updateData.$set.fcmToken = fcmToken;
-  }
-
-  await User.findByIdAndUpdate(user._id, updateData);
-
-  // Generate JWT token
   const jwtPayload = {
-    _id: user._id,
+    _id: user.id,
     firstName: user.firstName,
     lastName: user.lastName,
     email: user.email,
@@ -271,19 +374,15 @@ const verifyOTPAndLogin = async (contact: string, otp: string, fcmToken?: string
   const accessToken = jwtHelper.createToken(
     jwtPayload,
     config.jwt.jwt_secret as string,
-    config.jwt.jwt_expire_in as string
+    config.jwt.jwt_expire_in as string,
   );
-
   const refreshToken = jwtHelper.createToken(
     jwtPayload,
     config.jwt.jwt_refresh_secret as string,
-    config.jwt.jwt_refresh_expire_in as string
+    config.jwt.jwt_refresh_expire_in as string,
   );
 
-  // Update user cache
-  if (user._id) {
-    await UserCacheManage.updateUserCache(user._id.toString());
-  }
+  await UserCacheManage.updateUserCache(user.id);
 
   return {
     user: jwtPayload,
@@ -291,68 +390,104 @@ const verifyOTPAndLogin = async (contact: string, otp: string, fcmToken?: string
     refreshToken,
   };
 };
-//?  admin routes
-const getAllUsers = async (
-  query: Record<string, unknown>
-): Promise<TReturnUser.getAllUser> => {
+
+const getAllUsers = async (query: Record<string, unknown>): Promise<TReturnUser.getAllUser> => {
   const cached = await UserCacheManage.getCacheListWithQuery(query);
   if (cached) return cached;
 
-  const userQuery = new QueryBuilder(User.find(), query)
-    .search(["firstName", "lastName", "email"])
-    .filter()
-    .sort()
-    .paginate()
-    .fields();
-  const result = await userQuery.modelQuery;
-  // console.log(result);
-  const meta = await userQuery.countTotal();
-  await UserCacheManage.setCacheListWithQuery(query, { result, meta });
-  return { result, meta };
-};
-//!mine
-const createUser = async (
-  payload: TCreateOrLoginUserPayload
-): Promise<{ message: string; email?: string; phoneNumber?: string; accessToken?: string; refreshToken?: string; user?: any }> => {
-  let message = "";
+  const page = Math.max(Number(query.page ?? 1) || 1, 1);
+  const limit = Math.max(Number(query.limit ?? 10) || 10, 1);
+  const skip = (page - 1) * limit;
+  const sortBy = String(query.sortBy ?? "createdAt");
+  const sortOrder: Prisma.SortOrder =
+    String(query.sortOrder ?? "desc").toLowerCase() === "asc" ? "asc" : "desc";
+  const searchTerm = String(query.searchTerm ?? "").trim();
 
-  // Determine the contact provided
+  const allowedSortFields = [
+    "createdAt",
+    "updatedAt",
+    "firstName",
+    "lastName",
+    "email",
+    "lastLoginAt",
+  ];
+  const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : "createdAt";
+
+  const where: Prisma.UserWhereInput = {};
+  if (searchTerm) {
+    where.OR = [
+      { firstName: { contains: searchTerm, mode: "insensitive" } },
+      { lastName: { contains: searchTerm, mode: "insensitive" } },
+      { email: { contains: searchTerm, mode: "insensitive" } },
+      { phoneNumber: { contains: searchTerm, mode: "insensitive" } },
+    ];
+  }
+
+  if (query.role) where.role = String(query.role) as UserRole;
+  if (query.status) where.status = String(query.status) as UserStatus;
+  if (query.verified !== undefined) where.verified = String(query.verified) === "true";
+
+  const [total, users] = await Promise.all([
+    prisma.user.count({ where }),
+    prisma.user.findMany({
+      where,
+      orderBy: { [safeSortBy]: sortOrder },
+      skip,
+      take: limit,
+    }),
+  ]);
+
+  const result = users.map(mapUserResponse);
+  const meta = {
+    page,
+    limit,
+    total,
+    totalPage: Math.ceil(total / limit),
+  };
+
+  const payload = { result, meta };
+  await UserCacheManage.setCacheListWithQuery(query, payload);
+  return payload;
+};
+
+const createUser = async (
+  payload: TCreateOrLoginUserPayload,
+): Promise<{
+  message: string;
+  email?: string | null;
+  phoneNumber?: string | null;
+  accessToken?: string;
+  refreshToken?: string;
+  user?: any;
+}> => {
   const contact = payload.email || payload.phoneNumber;
   if (!contact) {
     throw new AppError(
       StatusCodes.BAD_REQUEST,
-      "Either email or phone number must be provided"
+      "Either email or phone number must be provided",
     );
   }
-
   const contactType = identifyContactType(contact);
 
-  // TEST EMAIL BYPASS: Auto-login for test@gmail.com if user exists and is verified
+  // Keep legacy bypass behavior exactly as modules-old implementation.
   if (payload.email === "test@gmail.com") {
-    const existingUser = await User.findOne({ email: payload.email });
-    
+    const existingUser = await prisma.user.findUnique({
+      where: { email: payload.email },
+    });
     if (!existingUser || !existingUser.verified) {
-      throw new AppError(
-        StatusCodes.NOT_FOUND,
-        "User not found or not verified"
-      );
+      throw new AppError(StatusCodes.NOT_FOUND, "User not found or not verified");
     }
 
-    // Update FCM token if provided
-    if (payload.fcmToken) {
-      await User.findByIdAndUpdate(existingUser._id, { 
-        fcmToken: payload.fcmToken,
-        lastLoginAt: new Date()
-      });
-    } else {
-      await User.findByIdAndUpdate(existingUser._id, { 
-        lastLoginAt: new Date()
-      });
-    }
+    await prisma.user.update({
+      where: { id: existingUser.id },
+      data: {
+        ...(payload.fcmToken ? { fcmToken: payload.fcmToken } : {}),
+        lastLoginAt: new Date(),
+      },
+    });
 
-    // Generate JWT tokens
     const jwtPayload = {
-      _id: existingUser._id,
+      _id: existingUser.id,
       firstName: existingUser.firstName,
       lastName: existingUser.lastName,
       email: existingUser.email,
@@ -366,20 +501,15 @@ const createUser = async (
     const accessToken = jwtHelper.createToken(
       jwtPayload,
       config.jwt.jwt_secret as string,
-      config.jwt.jwt_expire_in as string
+      config.jwt.jwt_expire_in as string,
     );
-
     const refreshToken = jwtHelper.createToken(
       jwtPayload,
       config.jwt.jwt_refresh_secret as string,
-      config.jwt.jwt_refresh_expire_in as string
+      config.jwt.jwt_refresh_expire_in as string,
     );
 
-    // Update user cache
-    if (existingUser._id) {
-      await UserCacheManage.updateUserCache(existingUser._id.toString());
-    }
-
+    await UserCacheManage.updateUserCache(existingUser.id);
     return {
       message: "Test login successful",
       email: existingUser.email,
@@ -389,134 +519,173 @@ const createUser = async (
     };
   }
 
-  // Check if user exists with this email or phone
-  const existingUser = await User.findOne({
-    $or: [
-      ...(payload.email ? [{ email: payload.email }] : []),
-      ...(payload.phoneNumber ? [{ phoneNumber: payload.phoneNumber }] : []),
-    ],
-  }).lean();
+  const existingUser = await prisma.user.findFirst({
+    where: {
+      OR: [
+        ...(payload.email ? [{ email: payload.email }] : []),
+        ...(payload.phoneNumber ? [{ phoneNumber: payload.phoneNumber }] : []),
+      ],
+    },
+  });
 
   if (existingUser) {
-    // If user exists and is verified, update FCM token if provided and send OTP
     if (existingUser.verified) {
-      // Update FCM token if provided
       if (payload.fcmToken) {
-        await User.findByIdAndUpdate(existingUser._id, { 
-          fcmToken: payload.fcmToken 
+        await prisma.user.update({
+          where: { id: existingUser.id },
+          data: { fcmToken: payload.fcmToken },
         });
       }
-      
+
       const userContact = existingUser.email || existingUser.phoneNumber;
       if (!userContact) {
-        throw new AppError(
-          StatusCodes.INTERNAL_SERVER_ERROR,
-          "User contact information missing"
-        );
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, "User contact information missing");
       }
       await sendOTPForLogin(userContact);
-      message = `Verification code sent successfully to your ${contactType}`;
       return {
-        message,
+        message: `Verification code sent successfully to your ${contactType}`,
         ...(existingUser.email ? { email: existingUser.email } : {}),
-        ...(existingUser.phoneNumber
-          ? { phoneNumber: existingUser.phoneNumber }
-          : {}),
+        ...(existingUser.phoneNumber ? { phoneNumber: existingUser.phoneNumber } : {}),
       };
     }
 
-    // If user exists but not verified, delete the old account
-    await User.findByIdAndDelete(existingUser._id);
-    await Profile.findOneAndDelete({ userId: existingUser._id });
+    await prisma.$transaction([
+      prisma.profile.deleteMany({ where: { userId: existingUser.id } }),
+      prisma.user.delete({ where: { id: existingUser.id } }),
+    ]);
   }
 
-  // Create new user with email or phone and optional FCM token
-  const newUser = await User.create({
-    ...(payload.email && { email: payload.email }),
-    ...(payload.phoneNumber && { phoneNumber: payload.phoneNumber }),
-    ...(payload.fcmToken && { fcmToken: payload.fcmToken }),
+  const newUser = await prisma.$transaction(async (tx) => {
+    const createdUser = await tx.user.create({
+      data: {
+        // IDs are explicit because current Prisma schema uses `id String @id` without default().
+        id: generateOid(),
+        ...(payload.email ? { email: payload.email } : {}),
+        ...(payload.phoneNumber ? { phoneNumber: payload.phoneNumber } : {}),
+        ...(payload.fcmToken ? { fcmToken: payload.fcmToken } : {}),
+      },
+    });
+
+    // Keep profile bootstrapping during signup so downstream profile reads never fail.
+    await tx.profile.create({
+      data: {
+        id: generateOid(),
+        userId: createdUser.id,
+      },
+    });
+
+    return createdUser;
   });
 
-  if (!newUser) {
-    throw new AppError(StatusCodes.BAD_REQUEST, "User creation failed");
-  }
-
-  // Send OTP for verification
   const newUserContact = newUser.email || newUser.phoneNumber;
   if (!newUserContact) {
-    throw new AppError(
-      StatusCodes.INTERNAL_SERVER_ERROR,
-      "User contact information missing"
-    );
+    throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, "User contact information missing");
   }
   await sendOTPForLogin(newUserContact);
+  await UserCacheManage.updateUserCache(newUser.id);
 
-  if (newUser._id) {
-    await UserCacheManage.updateUserCache(newUser._id.toString());
-  }
-
-  message = `User created successfully. Verification code sent to your ${contactType}`;
   return {
-    message,
+    message: `User created successfully. Verification code sent to your ${contactType}`,
     ...(newUser.email ? { email: newUser.email } : {}),
     ...(newUser.phoneNumber ? { phoneNumber: newUser.phoneNumber } : {}),
   };
 };
-//!mine
-const getMe = async (id: string) => {
-  console.log(id);
-  if (!id) {
-    throw new AppError(StatusCodes.UNAUTHORIZED, "You are not authorized");
-  }
-  const cached = await UserCacheManage.getCacheSingleUser(`${id}-me`);
-  if (cached) return cached;
-  const user = await User.findById(id).lean();
-  const profile = await Profile.findOne({ userId: id }).lean();
-  if (profile) {
-    (user as any).profile = profile || null;
-  }
 
-  if (!user) {
-    throw new AppError(StatusCodes.NOT_FOUND, "User not found");
-  }
-  await UserCacheManage.setCacheSingleUser(`${id}-me`, user);
-  return user;
-};
-//!mine
 const addUserFields = async (userId: string, fields: Partial<TUser>) => {
-  // Check if all required user fields are provided
-  const requiredUserFields = ["firstName", "lastName", "dateOfBirth"];
+  const requiredUserFields: Array<keyof TUser> = ["firstName", "lastName", "dateOfBirth"];
   const allFieldsFilled = requiredUserFields.every((field) => {
-    const fieldValue = fields[field as keyof typeof fields];
-    return fieldValue && fieldValue.toString().trim().length > 0;
+    const value = fields[field];
+    return value !== null && value !== undefined && String(value).trim().length > 0;
   });
-  if (allFieldsFilled) {
-    fields.allUserFieldsFilled = true;
-  } else {
-    throw new AppError(
-      StatusCodes.BAD_REQUEST,
-      "All user fields must be filled"
-    );
-  }
-  console.log(fields);
-  const user = await User.findByIdAndUpdate(
-    userId,
-    { $set: fields },
-    { new: true, runValidators: true }
-  );
 
-  if (!user) {
-    throw new AppError(StatusCodes.NOT_FOUND, "User not found");
+  if (!allFieldsFilled) {
+    throw new AppError(StatusCodes.BAD_REQUEST, "All user fields must be filled");
   }
-  //remove cache
+
+  const user = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      firstName: fields.firstName,
+      lastName: fields.lastName,
+      dateOfBirth: parseDateIfPresent(fields.dateOfBirth),
+      ...(fields.pushNotification !== undefined
+        ? { pushNotification: Boolean(fields.pushNotification) }
+        : {}),
+      allUserFieldsFilled: true,
+    },
+  }).catch(() => null);
+
+  if (!user) throw new AppError(StatusCodes.NOT_FOUND, "User not found");
   await UserCacheManage.updateUserCache(userId);
   await UserCacheManage.updateUserCache(`${userId}-me`);
-
-  return user;
+  return mapUserResponse(user);
 };
-//!mine
-const addProfileFields = async (userId: string, fields: Partial<TUser>) => {
-  // Check if all required profile fields are provided
+
+const buildProfileWriteData = (fields: any) => {
+  const data: Prisma.ProfileUncheckedCreateInput = {
+    id: generateOid(),
+    userId: "",
+  };
+
+  // Migration note:
+  // Converts old nested payloads (`location`, `hiddenFields`) into Prisma flat columns
+  // while still persisting full JSON location for backward compatibility.
+  const mutable: any = {};
+
+  if (fields.bio !== undefined) mutable.bio = fields.bio;
+  if (fields.photos !== undefined) mutable.photos = fields.photos;
+  if (fields.interests !== undefined) mutable.interests = fields.interests;
+  if (fields.lookingFor !== undefined) mutable.lookingFor = fields.lookingFor;
+  if (fields.maxDistance !== undefined) mutable.maxDistance = fields.maxDistance;
+  if (fields.ageRangeMin !== undefined) mutable.ageRangeMin = fields.ageRangeMin;
+  if (fields.ageRangeMax !== undefined) mutable.ageRangeMax = fields.ageRangeMax;
+  if (fields.gender !== undefined) mutable.gender = fields.gender;
+  if (fields.interestedIn !== undefined) mutable.interestedIn = fields.interestedIn;
+  if (fields.height !== undefined) mutable.height = fields.height;
+  if (fields.workplace !== undefined) mutable.workplace = fields.workplace;
+  if (fields.school !== undefined) mutable.school = fields.school;
+  if (fields.hometown !== undefined) mutable.hometown = fields.hometown;
+  if (fields.jobTitle !== undefined) mutable.jobTitle = fields.jobTitle;
+  if (fields.smokingStatus !== undefined) {
+    mutable.smokingStatus = normalizeLifestyleEnum(fields.smokingStatus);
+  }
+  if (fields.drinkingStatus !== undefined) {
+    mutable.drinkingStatus = normalizeLifestyleEnum(fields.drinkingStatus);
+  }
+  if (fields.studyLevel !== undefined) mutable.studyLevel = fields.studyLevel;
+  if (fields.religious !== undefined) mutable.religious = fields.religious;
+
+  if (fields.location !== undefined) {
+    const location = fields.location;
+    mutable.location = location as Prisma.InputJsonValue;
+    if (location?.address) mutable.address = location.address;
+    if (Array.isArray(location?.coordinates) && location.coordinates.length === 2) {
+      mutable.longitude = Number(location.coordinates[0]);
+      mutable.latitude = Number(location.coordinates[1]);
+    }
+  }
+
+  if (fields.hiddenFields && typeof fields.hiddenFields === "object") {
+    const hidden = fields.hiddenFields;
+    if (hidden.gender !== undefined) mutable.hiddenGender = Boolean(hidden.gender);
+    if (hidden.hometown !== undefined) mutable.hiddenHometown = Boolean(hidden.hometown);
+    if (hidden.workplace !== undefined) mutable.hiddenWorkplace = Boolean(hidden.workplace);
+    if (hidden.jobTitle !== undefined) mutable.hiddenJobTitle = Boolean(hidden.jobTitle);
+    if (hidden.school !== undefined) mutable.hiddenSchool = Boolean(hidden.school);
+    if (hidden.studyLevel !== undefined) mutable.hiddenStudyLevel = Boolean(hidden.studyLevel);
+    if (hidden.religious !== undefined) mutable.hiddenReligious = Boolean(hidden.religious);
+    if (hidden.drinkingStatus !== undefined) {
+      mutable.hiddenDrinkingStatus = Boolean(hidden.drinkingStatus);
+    }
+    if (hidden.smokingStatus !== undefined) {
+      mutable.hiddenSmokingStatus = Boolean(hidden.smokingStatus);
+    }
+  }
+
+  return { data, mutable };
+};
+
+const addProfileFields = async (userId: string, fields: any) => {
   const requiredProfileFields = [
     "location",
     "gender",
@@ -539,147 +708,144 @@ const addProfileFields = async (userId: string, fields: Partial<TUser>) => {
   ];
 
   const allFieldsFilled = requiredProfileFields.every((field) => {
-    const fieldValue = fields[field as keyof typeof fields];
-    return fieldValue && fieldValue.toString().trim().length > 0;
+    const value = fields[field];
+    if (Array.isArray(value)) return value.length > 0;
+    return value !== null && value !== undefined && String(value).trim().length > 0;
+  });
+  if (!allFieldsFilled) {
+    throw new AppError(StatusCodes.BAD_REQUEST, "All profile fields must be filled");
+  }
+
+  const { mutable } = buildProfileWriteData(fields);
+  await prisma.profile.upsert({
+    where: { userId },
+    update: mutable,
+    create: {
+      id: generateOid(),
+      userId,
+      ...mutable,
+    },
   });
 
-  if (allFieldsFilled) {
-    fields.allProfileFieldsFilled = true;
-  } else {
-    throw new AppError(
-      StatusCodes.BAD_REQUEST,
-      "All profile fields must be filled"
-    );
-  }
+  const user = await prisma.user.update({
+    where: { id: userId },
+    data: { allProfileFieldsFilled: true },
+    include: { profile: true },
+  }).catch(() => null);
 
-  const profile = await Profile.findOneAndUpdate(
-    { userId },
-    { $set: fields },
-    { new: true, upsert: true, runValidators: true }
-  );
-  if (!profile) {
-    throw new AppError(StatusCodes.NOT_FOUND, "Profile not found");
-  }
-  const user = await User.findByIdAndUpdate(
-    userId,
-    { $set: { allProfileFieldsFilled: true } },
-    { new: true }
-  );
-  console.log(user);
-  if (!user) {
-    throw new AppError(StatusCodes.NOT_FOUND, "User not found");
-  }
-  //remove cache
+  if (!user) throw new AppError(StatusCodes.NOT_FOUND, "User not found");
   await UserCacheManage.updateUserCache(userId);
   await UserCacheManage.updateUserCache(`${userId}-me`);
-
-  return user;
+  return mapUserResponse(user);
 };
-//!mine
-const updateUserByToken = async (
-  id: string,
-  updateData: Partial<TUser>
-): Promise<Partial<TUser>> => {
-  const user = await User.findById(id);
 
-  if (updateData.image && user?.image) {
-    unlinkFile(user.image);
-  }
-  const updatedUser = await User.findByIdAndUpdate(id, updateData, {
-    new: true,
+const updateUserByToken = async (id: string, updateData: Partial<TUser>): Promise<Partial<TUser>> => {
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) throw new AppError(StatusCodes.NOT_FOUND, "User not found");
+
+  if (updateData.image && user.image) unlinkFile(user.image);
+
+  const updatedUser = await prisma.user.update({
+    where: { id },
+    data: {
+      ...(updateData.firstName !== undefined ? { firstName: updateData.firstName } : {}),
+      ...(updateData.lastName !== undefined ? { lastName: updateData.lastName } : {}),
+      ...(updateData.image !== undefined ? { image: updateData.image } : {}),
+      ...(updateData.phoneNumber !== undefined ? { phoneNumber: updateData.phoneNumber } : {}),
+      ...(updateData.fcmToken !== undefined ? { fcmToken: updateData.fcmToken } : {}),
+      ...(updateData.pushNotification !== undefined
+        ? { pushNotification: Boolean(updateData.pushNotification) }
+        : {}),
+      ...(updateData.dateOfBirth !== undefined
+        ? { dateOfBirth: parseDateIfPresent(updateData.dateOfBirth) }
+        : {}),
+    },
   });
-  if (!updatedUser) {
-    throw new AppError(StatusCodes.NOT_FOUND, "User not found");
-  }
 
-  //remove cache
   await UserCacheManage.updateUserCache(id);
   await UserCacheManage.updateUserCache(`${id}-me`);
-  return updatedUser;
+  return mapUserResponse(updatedUser);
 };
-//!mine
+
 const updateProfileByToken = async (
   userId: string,
-  updateData: Partial<TProfile & { newPhotos?: string[] }>
+  updateData: Partial<{ newPhotos?: string[]; photos?: string[] } & Record<string, unknown>>,
 ) => {
-  const profile = await Profile.findOne({ userId });
+  const profile = await prisma.profile.findUnique({ where: { userId } });
   if (!profile) {
-    throw new AppError(
-      StatusCodes.NOT_FOUND,
-      "Profile not found for this user"
-    );
+    throw new AppError(StatusCodes.NOT_FOUND, "Profile not found for this user");
   }
 
-  // Handle multiple image uploads - append new images to existing ones
-  if (updateData.newPhotos && updateData.newPhotos.length > 0) {
-    const existingPhotos = profile.photos || [];
-    updateData.photos = [...existingPhotos, ...updateData.newPhotos];
+  const input = { ...updateData };
+  if (input.newPhotos && input.newPhotos.length > 0) {
+    input.photos = [...(profile.photos || []), ...input.newPhotos];
   }
+  delete input.newPhotos;
 
-  // Remove newPhotos from updateData as it's not part of the schema
-  delete updateData.newPhotos;
-
-  const updatedProfile = await Profile.findByIdAndUpdate(
-    profile._id,
-    { $set: updateData },
-    { new: true, runValidators: true }
-  ).populate({
-    path: "userId",
-    select: "-authentication",
+  const { mutable } = buildProfileWriteData(input);
+  const updatedProfile = await prisma.profile.update({
+    where: { userId },
+    data: mutable,
   });
-  if (!updatedProfile) {
-    throw new AppError(StatusCodes.BAD_REQUEST, "Profile update failed");
-  }
-  //remove cache
+
   await UserCacheManage.updateUserCache(userId);
   await UserCacheManage.updateUserCache(`${userId}-me`);
-  return updatedProfile;
+  return mapProfileResponse(updatedProfile);
 };
-//!mine
-const deleteProfileImage = async (userId: string, imageIndex: number) => {
-  const profile = await Profile.findOne({ userId });
-  if (!profile) {
-    throw new AppError(
-      StatusCodes.NOT_FOUND,
-      "Profile not found for this user"
-    );
-  }
 
-  if (!profile.photos || !Array.isArray(profile.photos)) {
+const deleteProfileImage = async (userId: string, imageIndex: number) => {
+  const profile = await prisma.profile.findUnique({ where: { userId } });
+  if (!profile) throw new AppError(StatusCodes.NOT_FOUND, "Profile not found for this user");
+  if (!Array.isArray(profile.photos)) {
     throw new AppError(StatusCodes.BAD_REQUEST, "No photos found in profile");
   }
-
   if (imageIndex < 0 || imageIndex >= profile.photos.length) {
     throw new AppError(StatusCodes.BAD_REQUEST, "Invalid image index");
   }
 
-  // Remove the image at the specified index
-  const updatedPhotos = profile.photos.filter(
-    (_, index) => index !== imageIndex
-  );
-
-  const updatedProfile = await Profile.findByIdAndUpdate(
-    profile._id,
-    { photos: updatedPhotos },
-    { new: true, runValidators: true }
-  ).populate({
-    path: "userId",
-    select: "-authentication",
+  const removedPath = profile.photos[imageIndex];
+  const updatedPhotos = profile.photos.filter((_, index) => index !== imageIndex);
+  const updatedProfile = await prisma.profile.update({
+    where: { userId },
+    data: { photos: updatedPhotos },
   });
-  if (updatedProfile && profile.photos[imageIndex]) {
-    unlinkFile(profile.photos[imageIndex]);
-  }
 
-  if (!updatedProfile) {
-    throw new AppError(StatusCodes.BAD_REQUEST, "Failed to delete image");
-  }
-  //remove cache
+  if (removedPath) unlinkFile(removedPath);
   await UserCacheManage.updateUserCache(userId);
   await UserCacheManage.updateUserCache(`${userId}-me`);
-  return updatedProfile;
+  return mapProfileResponse(updatedProfile);
 };
 
-//!mine - Get nearby users within specified radius with enhanced filtering
+const haversineDistanceKm = (
+  latitude1: number,
+  longitude1: number,
+  latitude2: number,
+  longitude2: number,
+) => {
+  const earthRadiusKm = 6371;
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+  const dLat = toRadians(latitude2 - latitude1);
+  const dLon = toRadians(longitude2 - longitude1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRadians(latitude1)) *
+      Math.cos(toRadians(latitude2)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  return 2 * earthRadiusKm * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+const extractLatLng = (profile: any): { latitude: number; longitude: number } | null => {
+  if (profile.latitude != null && profile.longitude != null) {
+    return { latitude: Number(profile.latitude), longitude: Number(profile.longitude) };
+  }
+  const location = profile.location as any;
+  if (location && Array.isArray(location.coordinates) && location.coordinates.length === 2) {
+    return { longitude: Number(location.coordinates[0]), latitude: Number(location.coordinates[1]) };
+  }
+  return null;
+};
+
 const getNearbyUsers = async (
   currentUserId: string,
   filters: {
@@ -692,7 +858,7 @@ const getNearbyUsers = async (
     lookingFor?: string;
     religious?: string;
     studyLevel?: string;
-  } = {}
+  } = {},
 ) => {
   const {
     radius = 25,
@@ -706,183 +872,135 @@ const getNearbyUsers = async (
     studyLevel,
   } = filters;
 
-  let longitude: number;
-  let latitude: number;
-
-  // Validate that both latitude and longitude are provided together
   const hasLatitude = queryLatitude !== undefined;
   const hasLongitude = queryLongitude !== undefined;
-
   if (hasLatitude !== hasLongitude) {
     throw new AppError(
       StatusCodes.BAD_REQUEST,
-      "Both latitude and longitude must be provided together, or neither should be provided."
+      "Both latitude and longitude must be provided together, or neither should be provided.",
     );
   }
 
-  // Use provided coordinates or get from current user's profile
-  if (hasLatitude && hasLongitude) {
-    latitude = queryLatitude;
-    longitude = queryLongitude;
-  } else {
-    // Get current user's profile with location
-    const currentUserProfile = await Profile.findOne({
-      userId: currentUserId,
-    }).select("location");
+  let latitude: number;
+  let longitude: number;
 
-    if (!currentUserProfile || !currentUserProfile.location) {
+  if (hasLatitude && hasLongitude) {
+    latitude = Number(queryLatitude);
+    longitude = Number(queryLongitude);
+  } else {
+    const currentProfile = await prisma.profile.findUnique({ where: { userId: currentUserId } });
+    if (!currentProfile) {
       throw new AppError(
         StatusCodes.BAD_REQUEST,
-        "User location not found. Please provide both latitude and longitude or update your profile location."
+        "User location not found. Please provide both latitude and longitude or update your profile location.",
       );
     }
-
-    const { coordinates } = currentUserProfile.location;
-    [longitude, latitude] = coordinates;
+    const coords = extractLatLng(currentProfile);
+    if (!coords) {
+      throw new AppError(
+        StatusCodes.BAD_REQUEST,
+        "User location not found. Please provide both latitude and longitude or update your profile location.",
+      );
+    }
+    latitude = coords.latitude;
+    longitude = coords.longitude;
   }
 
-  // Convert radius from kilometers to meters for MongoDB
-  const radiusMeters = radius * 1000;
-
-  // Build match conditions for additional filters
-  const additionalMatchConditions: any = {
-    userId: { $ne: new mongoose.Types.ObjectId(currentUserId) }, // Exclude current user
-    location: { $exists: true }, // Only users with location
+  // Migration note:
+  // Mongo used `$geoNear`; current Prisma/Postgres path does DB prefilter + app-side Haversine distance.
+  // This keeps behavior close until PostGIS/native geospatial queries are introduced.
+  const where: Prisma.ProfileWhereInput = {
+    userId: { not: currentUserId },
+    latitude: { not: null },
+    longitude: { not: null },
+    user: {
+      status: UserStatus.active,
+      verified: true,
+      allProfileFieldsFilled: true,
+      allUserFieldsFilled: true,
+    },
+    ...(gender ? { gender: gender as any } : {}),
+    ...(interestedIn ? { interestedIn: interestedIn as any } : {}),
+    ...(lookingFor ? { lookingFor: lookingFor as any } : {}),
+    ...(religious ? { religious: religious as any } : {}),
+    ...(studyLevel ? { studyLevel: studyLevel as any } : {}),
+    ...(interests?.length ? { interests: { hasSome: interests } } : {}),
   };
 
-  // Add profile field filters
-  if (gender) additionalMatchConditions.gender = gender;
-  if (interestedIn) additionalMatchConditions.interestedIn = interestedIn;
-  if (lookingFor) additionalMatchConditions.lookingFor = lookingFor;
-  if (religious) additionalMatchConditions.religious = religious;
-  if (studyLevel) additionalMatchConditions.studyLevel = studyLevel;
-  if (interests && interests.length > 0) {
-    additionalMatchConditions.interests = { $in: interests };
-  }
+  const nearbyProfiles = await prisma.profile.findMany({
+    where,
+    include: { user: true },
+  });
 
-  const nearbyUsers = await Profile.aggregate([
-    {
-      $geoNear: {
-        near: {
-          type: "Point",
-          coordinates: [longitude, latitude],
-        },
-        distanceField: "distance",
-        maxDistance: radiusMeters,
-        spherical: true,
-        query: additionalMatchConditions,
-      },
-    },
-    {
-      $lookup: {
-        from: "users",
-        localField: "userId",
-        foreignField: "_id",
-        as: "user",
-      },
-    },
-    {
-      $unwind: "$user",
-    },
-    {
-      $match: {
-        "user.status": "active", // Only active users
-        "user.verified": true, // Only verified users
-        "user.allProfileFieldsFilled": true, // Only users with complete profiles
-        "user.allUserFieldsFilled": true, // Only users with complete user fields
-      },
-    },
-    {
-      $lookup: {
-        from: "connections",
-        let: { nearbyUserId: "$userId" },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $and: [
-                  {
-                    $in: [
-                      new mongoose.Types.ObjectId(currentUserId),
-                      "$userIds",
-                    ],
-                  },
-                  { $in: ["$$nearbyUserId", "$userIds"] },
-                ],
-              },
-            },
-          },
-        ],
-        as: "connection",
-      },
-    },
-    {
-      $project: {
-        userId: "$userId",
-        distance: { $round: ["$distance", 0] }, // Distance in meters, rounded
-        distanceKm: { $round: [{ $divide: ["$distance", 1000] }, 2] }, // Distance in km
-        location: {
-          latitude: { $arrayElemAt: ["$location.coordinates", 1] },
-          longitude: { $arrayElemAt: ["$location.coordinates", 0] },
-        },
-        name: {
-          $concat: [
-            { $ifNull: ["$user.firstName", ""] },
-            " ",
-            { $ifNull: ["$user.lastName", ""] },
+  const rows = await Promise.all(
+    nearbyProfiles.map(async (profile) => {
+      if (profile.latitude == null || profile.longitude == null) return null;
+
+      const distanceKm = haversineDistanceKm(
+        latitude,
+        longitude,
+        Number(profile.latitude),
+        Number(profile.longitude),
+      );
+      if (distanceKm > radius) return null;
+
+      const connection = await prisma.connection.findFirst({
+        where: {
+          OR: [
+            { userOneId: currentUserId, userTwoId: profile.userId },
+            { userOneId: profile.userId, userTwoId: currentUserId },
           ],
         },
-        age: {
-          $floor: {
-            $divide: [
-              { $subtract: [new Date(), "$user.dateOfBirth"] },
-              365.25 * 24 * 60 * 60 * 1000,
-            ],
-          },
-        },
+      });
 
-        gender: 1,
-        interests: 1,
-        interestedIn: 1,
-        lookingFor: 1,
-        religious: 1,
-        studyLevel: 1,
-        bio: 1,
-        profilePicture: { $ifNull: ["$user.image", null] }, // Profile picture from User model
-        photos: 1,
-        height: 1,
-        workplace: 1,
-        school: 1,
-        isConnected: {
-          $cond: [{ $gt: [{ $size: "$connection" }, 0] }, true, false],
-        },
-      },
-    },
-    {
-      $sort: { distance: 1 },
-    },
-  ]);
+      const age = profile.user.dateOfBirth
+        ? Math.floor(
+            (Date.now() - new Date(profile.user.dateOfBirth).getTime()) /
+              (365.25 * 24 * 60 * 60 * 1000),
+          )
+        : null;
 
-  return nearbyUsers;
+      return {
+        userId: profile.userId,
+        distance: Math.round(distanceKm * 1000),
+        distanceKm: Math.round(distanceKm * 100) / 100,
+        location: {
+          latitude: Number(profile.latitude),
+          longitude: Number(profile.longitude),
+        },
+        name: `${profile.user.firstName ?? ""} ${profile.user.lastName ?? ""}`.trim(),
+        age,
+        gender: profile.gender,
+        interests: profile.interests,
+        interestedIn: profile.interestedIn,
+        lookingFor: profile.lookingFor,
+        religious: profile.religious,
+        studyLevel: profile.studyLevel,
+        bio: profile.bio,
+        profilePicture: profile.user.image ?? null,
+        photos: profile.photos,
+        height: profile.height,
+        workplace: profile.workplace,
+        school: profile.school,
+        isConnected: Boolean(connection),
+      };
+    }),
+  );
+
+  return rows
+    .filter((row): row is NonNullable<typeof row> => Boolean(row))
+    .sort((a, b) => a.distance - b.distance);
 };
 
-//!mine - Update hidden fields for user profile
 const updateHiddenFields = async (
   userId: string,
-  hiddenFieldsUpdate: {
-    [key: string]: boolean;
-  }
+  hiddenFieldsUpdate: { [key: string]: boolean },
 ) => {
-  // Get the current profile
-  const profile = await Profile.findOne({ userId });
+  const profile = await prisma.profile.findUnique({ where: { userId } });
   if (!profile) {
-    throw new AppError(
-      StatusCodes.NOT_FOUND,
-      "Profile not found for this user"
-    );
+    throw new AppError(StatusCodes.NOT_FOUND, "Profile not found for this user");
   }
 
-  // Validate that only valid hidden field names are provided
   const validHiddenFields = [
     "gender",
     "hometown",
@@ -894,232 +1012,128 @@ const updateHiddenFields = async (
     "drinkingStatus",
     "smokingStatus",
   ];
-
   const invalidFields = Object.keys(hiddenFieldsUpdate).filter(
-    (field) => !validHiddenFields.includes(field)
+    (field) => !validHiddenFields.includes(field),
   );
-
   if (invalidFields.length > 0) {
     throw new AppError(
       StatusCodes.BAD_REQUEST,
-      `Invalid hidden field(s): ${invalidFields.join(
-        ", "
-      )}. Valid fields are: ${validHiddenFields.join(", ")}`
+      `Invalid hidden field(s): ${invalidFields.join(", ")}. Valid fields are: ${validHiddenFields.join(", ")}`,
     );
   }
 
-  // Prepare the update object for hiddenFields
-  const hiddenFieldsUpdateQuery: any = {};
-
-  Object.keys(hiddenFieldsUpdate).forEach((field) => {
-    hiddenFieldsUpdateQuery[`hiddenFields.${field}`] =
-      hiddenFieldsUpdate[field];
-  });
-
-  // Update the profile with new hidden fields settings
-  const updatedProfile = await Profile.findByIdAndUpdate(
-    profile._id,
-    { $set: hiddenFieldsUpdateQuery },
-    { new: true, runValidators: true }
-  ).populate({
-    path: "userId",
-    select: "-authentication",
-  });
-
-  if (!updatedProfile) {
-    throw new AppError(
-      StatusCodes.BAD_REQUEST,
-      "Failed to update hidden fields"
-    );
+  const data: Prisma.ProfileUpdateInput = {};
+  if (hiddenFieldsUpdate.gender !== undefined) data.hiddenGender = hiddenFieldsUpdate.gender;
+  if (hiddenFieldsUpdate.hometown !== undefined) data.hiddenHometown = hiddenFieldsUpdate.hometown;
+  if (hiddenFieldsUpdate.workplace !== undefined) {
+    data.hiddenWorkplace = hiddenFieldsUpdate.workplace;
+  }
+  if (hiddenFieldsUpdate.jobTitle !== undefined) data.hiddenJobTitle = hiddenFieldsUpdate.jobTitle;
+  if (hiddenFieldsUpdate.school !== undefined) data.hiddenSchool = hiddenFieldsUpdate.school;
+  if (hiddenFieldsUpdate.studyLevel !== undefined) {
+    data.hiddenStudyLevel = hiddenFieldsUpdate.studyLevel;
+  }
+  if (hiddenFieldsUpdate.religious !== undefined) data.hiddenReligious = hiddenFieldsUpdate.religious;
+  if (hiddenFieldsUpdate.drinkingStatus !== undefined) {
+    data.hiddenDrinkingStatus = hiddenFieldsUpdate.drinkingStatus;
+  }
+  if (hiddenFieldsUpdate.smokingStatus !== undefined) {
+    data.hiddenSmokingStatus = hiddenFieldsUpdate.smokingStatus;
   }
 
-  // Clear any cached user data to ensure fresh data on next request
+  const updatedProfile = await prisma.profile.update({
+    where: { userId },
+    data,
+  });
+
   await UserCacheManage.updateUserCache(userId);
-
-  return updatedProfile;
+  return mapProfileResponse(updatedProfile);
 };
 
-//!mine - Get Persona verification URL
 const getPersonaVerificationUrl = async (userId: string) => {
-  // Find user
-  const user = await User.findById(userId);
-  if (!user) {
-    throw new AppError(StatusCodes.NOT_FOUND, "User not found");
-  }
-
-  // Check if user is already verified
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new AppError(StatusCodes.NOT_FOUND, "User not found");
   if (user.isPersonaVerified) {
-    throw new AppError(
-      StatusCodes.BAD_REQUEST,
-      "User is already verified with Persona"
-    );
+    throw new AppError(StatusCodes.BAD_REQUEST, "User is already verified with Persona");
   }
-
-  // Check if user's email is verified first
   if (!user.verified) {
     throw new AppError(
       StatusCodes.BAD_REQUEST,
-      "Please verify your email/phone before proceeding with identity verification"
+      "Please verify your email/phone before proceeding with identity verification",
     );
   }
 
-  // Create inquiry and get verification URL
-  const verificationUrl = await createPersonaInquiry(
-    userId,
-    user.email
-  );
-
-  return {
-    verificationUrl,
-    userId,
-  };
+  const verificationUrl = await createPersonaInquiry(userId, user.email ?? undefined);
+  return { verificationUrl, userId };
 };
 
-//!mine - Handle Persona webhook
-const handlePersonaWebhook = async (
-  payload: string,
-  signature: string,
-  webhookData: any
-) => {
-  // Verify webhook signature
+const handlePersonaWebhook = async (payload: string, signature: string, webhookData: any) => {
   const isValid = verifyPersonaWebhookSignature(payload, signature);
-  
-  if (!isValid) {
-    throw new AppError(
-      StatusCodes.UNAUTHORIZED,
-      "Invalid webhook signature"
-    );
-  }
+  if (!isValid) throw new AppError(StatusCodes.UNAUTHORIZED, "Invalid webhook signature");
 
   let data = webhookData.data;
   let included = webhookData.included;
-  
-  // Handle event-based webhooks (newer Persona webhook format)
-  if (data?.type === 'event') {
-    const eventName = data.attributes?.name;
-    console.log(`Persona event received: ${eventName}`);
-    
-    // Extract the actual inquiry data from the event payload
+
+  if (data?.type === "event") {
     if (data.attributes?.payload) {
-      const payload = data.attributes.payload;
-      data = payload.data;
-      included = payload.included || [];
-      console.log(`Extracted from payload: userId=${data.attributes?.['reference-id']}, includedCount=${included.length}`);
+      const eventPayload = data.attributes.payload;
+      data = eventPayload.data;
+      included = eventPayload.included || [];
     }
   }
-  
-  console.log(`Processing: type=${data?.type}, status=${data?.attributes?.status}, userId=${data?.attributes?.['reference-id']}`);
-  
-  // Handle inquiry.completed or inquiry.approved event
-  if (
-    data?.type === 'inquiry' && 
-    (data.attributes?.status === 'completed' || data.attributes?.status === 'approved')
-  ) {
-    const userId = data.attributes['reference-id'];
-    const inquiryId = data.id;
 
-    // Check if there are verification results in the included array
+  if (
+    data?.type === "inquiry" &&
+    (data.attributes?.status === "completed" || data.attributes?.status === "approved")
+  ) {
+    const userId = data.attributes["reference-id"];
     let isVerified = false;
-    
-    if (included && Array.isArray(included)) {
-      // Find all government-id verifications
+    if (Array.isArray(included)) {
       const verifications = included.filter(
-        (item: any) => item.type === 'verification/government-id'
+        (item: any) => item.type === "verification/government-id",
       );
-      
-      console.log(`Found ${verifications.length} verification(s)`);
-      
-      // Check if ANY verification passed
-      const hasPassedVerification = verifications.some(
-        (ver: any) => ver.attributes?.status === 'passed'
-      );
-      
-      if (hasPassedVerification) {
-        isVerified = true;
-        console.log(`✓ Verification passed for user ${userId}`);
-      } else {
-        console.log(`✗ No passed verification for user ${userId}`);
-      }
+      isVerified = verifications.some((ver: any) => ver.attributes?.status === "passed");
     }
-    
-    // If inquiry is approved, set verified to true regardless of checks
-    if (data.attributes.status === 'approved') {
-      isVerified = true;
-      console.log(`✓ Inquiry approved for user ${userId}`);
-    }
+    if (data.attributes.status === "approved") isVerified = true;
 
-    console.log(`Updating user ${userId}: isPersonaVerified=${isVerified}`);
-    
-    // Update user's verification status
-    const user = await User.findByIdAndUpdate(
-      userId,
-      { 
-        $set: { 
-          isPersonaVerified: isVerified 
-        } 
-      },
-      { new: true }
-    );
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { isPersonaVerified: isVerified },
+    }).catch(() => null);
+    if (!user) throw new AppError(StatusCodes.NOT_FOUND, `User not found with ID: ${userId}`);
 
-    if (!user) {
-      throw new AppError(
-        StatusCodes.NOT_FOUND,
-        `User not found with ID: ${userId}`
-      );
-    }
-
-    // Clear user cache
     await UserCacheManage.updateUserCache(userId);
     await UserCacheManage.updateUserCache(`${userId}-me`);
-
-    console.log(`✓ User ${userId} updated successfully, isPersonaVerified=${user.isPersonaVerified}`);
   }
 
-  // Handle inquiry.failed or inquiry.declined events
   if (
-    data?.type === 'inquiry' && 
-    (data.attributes?.status === 'failed' || data.attributes?.status === 'declined')
+    data?.type === "inquiry" &&
+    (data.attributes?.status === "failed" || data.attributes?.status === "declined")
   ) {
-    const userId = data.attributes['reference-id'];
-    
-    // Set verification to false for failed/declined inquiries
-    await User.findByIdAndUpdate(
-      userId,
-      { 
-        $set: { 
-          isPersonaVerified: false 
-        } 
-      },
-      { new: true }
-    );
-    
+    const userId = data.attributes["reference-id"];
+    await prisma.user.update({
+      where: { id: userId },
+      data: { isPersonaVerified: false },
+    }).catch(() => null);
+
     await UserCacheManage.updateUserCache(userId);
     await UserCacheManage.updateUserCache(`${userId}-me`);
-    console.log(`Persona verification failed/declined for user ${userId}`);
   }
 
   return { success: true };
 };
 
-
-/**
- * Delete user
- * 
- * @author - @shaishab316
- */
 const deleteUser = async (userId: string) => {
-  let user = await User.findById(userId);
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new AppError(StatusCodes.NOT_FOUND, "User not found");
 
-  if (!user) {
-    throw new AppError(StatusCodes.NOT_FOUND, "User not found");
-  }
-
-  user = await User.findByIdAndDelete(userId,{new: true}).select("-authentication -fcmToken");
-
-  //remove cache
+  const deleted = await prisma.user.delete({ where: { id: userId } });
   await UserCacheManage.updateUserCache(userId);
 
-  return user;
+  const mapped = mapUserResponse(deleted);
+  delete (mapped as any).authentication;
+  delete (mapped as any).fcmToken;
+  return mapped;
 };
 
 export const UserServices = {
@@ -1142,5 +1156,5 @@ export const UserServices = {
   updateHiddenFields,
   getPersonaVerificationUrl,
   handlePersonaWebhook,
-  deleteUser
+  deleteUser,
 };

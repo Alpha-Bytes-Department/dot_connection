@@ -1,48 +1,37 @@
-import { Model } from "mongoose";
-import { USER_ROLES } from "./user.constant";
 import type { z } from "zod";
 import type { UserValidation } from "./user.validation";
+import { USER_ROLES } from "./user.constant";
 
 export type TUser = {
   _id?: string;
-  firstName?: string;
-  lastName?: string;
-  email?: string; // Made optional - either email or phoneNumber required
-  image?: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+  image?: string | null;
   role?: keyof typeof USER_ROLES;
-  phoneNumber?: string;
-  fcmToken?: string;
+  phoneNumber?: string | null;
+  fcmToken?: string | null;
   status?: "active" | "delete";
   verified?: boolean;
   authentication?: {
-    oneTimeCode?: string;
-    expireAt?: Date;
+    oneTimeCode?: string | null;
+    expireAt?: Date | null;
     loginAttempts?: number;
-    lastLoginAttempt?: Date;
+    lastLoginAttempt?: Date | null;
   };
   allProfileFieldsFilled: boolean;
   allUserFieldsFilled: boolean;
   isProfileVerified: boolean;
   isPersonaVerified: boolean;
   pushNotification: boolean;
-  lastLoginAt?: Date;
-  dateOfBirth?: Date;
+  lastLoginAt?: Date | null;
+  dateOfBirth?: Date | null;
+  profile?: any;
   createdAt?: Date;
   updatedAt?: Date;
 };
 
-export type ContactType = 'email' | 'phone';
-
-export type UserModal = {
-  isExistUserById(id: string): Promise<TUser | null>;
-  isExistUserByEmail(email: string): Promise<TUser | null>;
-  isExistUserByPhone(phoneNumber: string): Promise<TUser | null>;
-  isExistUserByEmailOrPhone(contact: string): Promise<TUser | null>;
-  isValidOTP(contact: string, otp: string): Promise<boolean>;
-  generateOTP(contact: string): Promise<string>;
-  isOTPExpired(user: TUser): boolean;
-  canAttemptLogin(user: TUser): boolean;
-} & Model<TUser>;
+export type ContactType = "email" | "phone";
 
 export namespace TReturnUser {
   export type Meta = {
@@ -55,16 +44,8 @@ export namespace TReturnUser {
     result: TUser[];
     meta?: Meta;
   };
-
 }
 
-
-
-//@author: @shaishab316
-
-///////////////////////////
-//! Validation interfaces
-///////////////////////////
-
-//? create or login user
-export type TCreateOrLoginUserPayload = z.infer<typeof UserValidation.createUser>['body']
+export type TCreateOrLoginUserPayload = z.infer<
+  typeof UserValidation.createUser
+>["body"];

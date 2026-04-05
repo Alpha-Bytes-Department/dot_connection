@@ -1,34 +1,37 @@
+import { prisma } from "../../../DB/prisma";
+import generateOid from "../../../util/generateOid";
 import { TSetting } from "./setting.interface";
-import { Setting } from "./setting.model";
 
-const createOrUpdateSetting = async (field: keyof TSetting, data: string): Promise<Partial<TSetting>> => {
-    const setting = await Setting.findOneAndUpdate(
-        {},
-        { [field]: data },
-        { upsert: true, new: true }
-    );
-    return setting;
+const createOrUpdateSetting = async (
+  field: keyof Omit<TSetting, "id" | "createdAt" | "updatedAt">,
+  data: string,
+): Promise<Partial<TSetting>> => {
+  const existing = await prisma.setting.findFirst();
+  if (!existing) {
+    return prisma.setting.create({
+      data: {
+        id: generateOid(),
+        [field]: data,
+      },
+    });
+  }
+
+  return prisma.setting.update({
+    where: { id: existing.id },
+    data: { [field]: data },
+  });
 };
 
-const createAboutUs = async (data: string): Promise<Partial<TSetting>> => {
-    return createOrUpdateSetting('aboutUs', data);
-};
-
-const createPrivacyPolicy = async (data: string): Promise<Partial<TSetting>> => {
-    return createOrUpdateSetting('privacyPolicy', data);
-};
-
-const createTermsAndConditions = async (data: string): Promise<Partial<TSetting>> => {
-    return createOrUpdateSetting('termsAndConditions', data);
-};
-
-const getSettings = async (): Promise<TSetting | null> => {
-    return Setting.findOne().lean();
-};
+const createAboutUs = async (data: string) => createOrUpdateSetting("aboutUs", data);
+const createPrivacyPolicy = async (data: string) =>
+  createOrUpdateSetting("privacyPolicy", data);
+const createTermsAndConditions = async (data: string) =>
+  createOrUpdateSetting("termsAndConditions", data);
+const getSettings = async () => prisma.setting.findFirst();
 
 export const settingService = {
-    createAboutUs,
-    createPrivacyPolicy,
-    createTermsAndConditions,
-    getSettings,
+  createAboutUs,
+  createPrivacyPolicy,
+  createTermsAndConditions,
+  getSettings,
 };

@@ -1,0 +1,48 @@
+model Match {
+  /// NOTE: IDs are currently app-assigned to match legacy Mongo ObjectId imports.
+  /// If you create new records without supplying `id`, add `@default(cuid())` (or uuid()).
+  id String @id
+
+  fromUserId String
+  toUserId   String
+
+  fromUser User @relation("MatchFromUser", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUser   User @relation("MatchToUser", fields: [toUserId], references: [id], onDelete: Cascade)
+
+  action MatchAction
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([fromUserId, toUserId])
+  @@index([fromUserId])
+  @@index([fromUserId, action])
+  @@index([toUserId, action])
+  @@index([createdAt(sort: Desc)])
+  @@index([fromUserId, createdAt(sort: Desc)])
+  @@index([fromUserId, toUserId, action])
+  @@map("matches")
+}
+
+model ConnectionRequest {
+  /// NOTE: IDs are currently app-assigned to match legacy Mongo ObjectId imports.
+  /// If you create new records without supplying `id`, add `@default(cuid())` (or uuid()).
+  id String @id
+
+  fromUserId String
+  toUserId   String
+
+  fromUser User @relation("ConnectionRequestFrom", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUser   User @relation("ConnectionRequestTo", fields: [toUserId], references: [id], onDelete: Cascade)
+
+  status ConnectionRequestStatus @default(pending)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([fromUserId, toUserId])
+  @@index([toUserId, status])
+  @@index([fromUserId, status])
+  @@index([createdAt(sort: Desc)])
+  @@map("connection_requests")
+}

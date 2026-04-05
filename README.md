@@ -25,6 +25,7 @@ dot_connection_app is a comprehensive solution designed to empower citizens to r
 ## 🛠️ Technologies Used
 
 ### Backend
+
 - Node.js with Express.js
 - TypeScript
 - MongoDB with Mongoose ODM
@@ -37,12 +38,14 @@ dot_connection_app is a comprehensive solution designed to empower citizens to r
 - Winston for logging
 
 ### DevOps
+
 - Docker and Docker Compose
 - Git version control
 
 ## 🚀 Installation
 
 ### Prerequisites
+
 - Node.js (v16 or higher)
 - MongoDB (v4 or higher)
 - Redis (v6 or higher)
@@ -51,36 +54,39 @@ dot_connection_app is a comprehensive solution designed to empower citizens to r
 ### Setup Instructions
 
 1. **Clone the repository**
+
    ```bash
    git clone https://github.com/abdullahalkafi-dev/dot_connection_app.git
    cd dot_connection_app
    ```
 
 2. **Install dependencies**
+
    ```bash
    pnpm install
    ```
 
 3. **Environment Configuration**
    Create a `.env` file in the project root with the following variables:
+
    ```
    NODE_ENV=development
    PORT=5000
-   DATABASE_URL=mongodb://localhost:27017/dot_connection_app
+   DATABASE_URL_OLD=mongodb://localhost:27017/dot_connection_app
    JWT_SECRET=your_jwt_secret
    JWT_EXPIRES_IN=1d
    JWT_REFRESH_SECRET=your_refresh_secret
    JWT_REFRESH_EXPIRES_IN=30d
-   
+
    # Redis Configuration
    REDIS_URL=redis://localhost:6379
-   
+
    # Email Configuration
    EMAIL_HOST=smtp.example.com
    EMAIL_PORT=587
    EMAIL_USER=your_email@example.com
    EMAIL_PASS=your_email_password
-   
+
    # AWS S3 Configuration
    AWS_ACCESS_KEY_ID=your_aws_access_key
    AWS_SECRET_ACCESS_KEY=your_aws_secret_key
@@ -89,6 +95,7 @@ dot_connection_app is a comprehensive solution designed to empower citizens to r
    ```
 
 4. **Start development server**
+
    ```bash
    pnpm dev
    ```
@@ -103,6 +110,7 @@ dot_connection_app is a comprehensive solution designed to empower citizens to r
 ### API Endpoints
 
 #### Authentication
+
 - `POST /api/v1/auth/register` - Register a new user
 - `POST /api/v1/auth/login` - User login
 - `POST /api/v1/auth/refresh-token` - Refresh access token
@@ -110,6 +118,7 @@ dot_connection_app is a comprehensive solution designed to empower citizens to r
 - `POST /api/v1/auth/reset-password` - Reset password with token
 
 #### User Management
+
 - `GET /api/v1/users` - Get all users (admin only)
 - `GET /api/v1/users/getme` - Get current user profile
 - `GET /api/v1/users/:id` - Get specific user by ID
@@ -119,6 +128,7 @@ dot_connection_app is a comprehensive solution designed to empower citizens to r
 - `PATCH /api/v1/users/:id/role` - Update user role
 
 #### Pothole Reports
+
 - `POST /api/v1/pothole-reports` - Create new report
 - `GET /api/v1/pothole-reports` - Get all reports
 - `GET /api/v1/pothole-reports/:id` - Get report by ID
@@ -130,15 +140,16 @@ dot_connection_app is a comprehensive solution designed to empower citizens to r
 ### Making API Requests
 
 #### Example: Creating a Pothole Report
+
 ```javascript
 const reportData = {
-  issue: "Pothole",
-  severityLevel: "Severe",
+  issue: 'Pothole',
+  severityLevel: 'Severe',
   location: {
-    address: "123 Main Street, Cityville",
-    coordinates: [37.7749, -122.4194]  // [latitude, longitude]
+    address: '123 Main Street, Cityville',
+    coordinates: [37.7749, -122.4194], // [latitude, longitude]
   },
-  description: "Large pothole causing traffic hazard"
+  description: 'Large pothole causing traffic hazard',
 };
 
 // If using form data with images/videos
@@ -150,12 +161,12 @@ formData.append('media', videoFile);
 fetch('http://localhost:5000/api/v1/pothole-reports', {
   method: 'POST',
   headers: {
-    'Authorization': 'Bearer YOUR_JWT_TOKEN'
+    Authorization: 'Bearer YOUR_JWT_TOKEN',
   },
-  body: formData
+  body: formData,
 })
-.then(response => response.json())
-.then(data => console.log(data));
+  .then((response) => response.json())
+  .then((data) => console.log(data));
 ```
 
 ## 🧪 Testing

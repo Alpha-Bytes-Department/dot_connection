@@ -1,39 +1,31 @@
-import { Model, Types } from "mongoose";
-import {
-  PROFILE_DRINKING_STATUS,
-  PROFILE_INTERESTS,
-  PROFILE_RELIGION,
-  PROFILE_SMOKING_STATUS,
-  PROFILE_STUDY_LEVEL,
-} from "./profile.constant";
-
 export type TLocation = {
   type: "Point";
-  coordinates: [number, number]; // [longitude, latitude]
+  coordinates: [number, number];
   address?: string;
 };
 
 export type TProfile = {
-  userId: Types.ObjectId; // This will be the primary identifier (_id)
+  id?: string;
+  userId: string | any;
   bio?: string;
   location?: TLocation;
   photos?: string[];
-  interests?: (typeof PROFILE_INTERESTS)[keyof typeof PROFILE_INTERESTS][];
-  lookingFor?: string; // "friendship", "dating", "relationship", "networking"
-  maxDistance?: number; // in kilometers
+  interests?: string[];
+  lookingFor?: string;
+  maxDistance?: number;
   ageRangeMin?: number;
   ageRangeMax?: number;
   gender?: "male" | "female" | "other";
   interestedIn?: "male" | "female" | "everyone";
-  height?: number; // in cm
+  height?: number;
   workplace?: string;
   school?: string;
   hometown?: string;
   jobTitle?: string;
-  smokingStatus?: (typeof PROFILE_SMOKING_STATUS)[keyof typeof PROFILE_SMOKING_STATUS];
-  drinkingStatus?: (typeof PROFILE_DRINKING_STATUS)[keyof typeof PROFILE_DRINKING_STATUS];
-  studyLevel?: (typeof PROFILE_STUDY_LEVEL)[keyof typeof PROFILE_STUDY_LEVEL];
-  religious?: (typeof PROFILE_RELIGION)[keyof typeof PROFILE_RELIGION][];
+  smokingStatus?: string;
+  drinkingStatus?: string;
+  studyLevel?: string;
+  religious?: string;
   profileViews?: number;
   hiddenFields?: {
     gender: boolean;
@@ -51,10 +43,6 @@ export type TProfile = {
   updatedAt?: Date;
 };
 
-export type ProfileModal = {
-  findByUserId(userId: string): Promise<TProfile | null>;
-  calculateCompleteness(profile: TProfile): number;
-} & Model<TProfile>;
 export namespace TReturnProfile {
   export type Meta = {
     page: number;
@@ -66,7 +54,4 @@ export namespace TReturnProfile {
     result: TProfile[];
     meta?: Meta;
   };
-  export type getSingleProfile = TProfile;
-  export type updateProfile = TProfile;
-  export type createProfile = TProfile;
 }

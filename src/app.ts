@@ -1,28 +1,28 @@
-import cors from "cors";
-import express, { Request, Response } from "express";
-import { StatusCodes } from "http-status-codes";
-import globalErrorHandler from "./app/middlewares/globalErrorHandler";
-import router from "./routes";
-import cookieParser from "cookie-parser";
-import { Morgan } from "./shared/morgen";
-import os from "os";
+import cors from 'cors';
+import express, { Request, Response } from 'express';
+import { StatusCodes } from 'http-status-codes';
+import globalErrorHandler from './app/middlewares/globalErrorHandler';
+import router from './routes';
+import cookieParser from 'cookie-parser';
+import { Morgan } from './shared/morgen';
+import os from 'os';
 import {
   helmetConfig,
   generalLimiter,
   compressionConfig,
   additionalSanitization,
-} from "./app/middlewares/security";
+} from './app/middlewares/security';
 import {
   performanceMonitor,
   healthCheck,
   performanceDashboard,
   apiUsageTracker,
-} from "./app/middlewares/performanceMonitor";
+} from './app/middlewares/performanceMonitor';
 // import admin from 'firebase-admin';
 const app: express.Application = express();
 
 // Trust proxy settings for nginx reverse proxy
-app.set("trust proxy", 1); // Trust first proxy (nginx)
+app.set('trust proxy', 1); // Trust first proxy (nginx)
 
 // Security middleware - MUST be first
 app.use(helmetConfig);
@@ -41,16 +41,18 @@ app.use(generalLimiter);
 
 //body parser with size limits
 // Capture raw body for webhook signature verification
-app.use(express.json({ 
-  limit: "10mb",
-  verify: (req: any, res, buf, encoding) => {
-    // Save raw body for webhook endpoints that need signature verification
-    if (req.originalUrl?.includes('/webhook')) {
-      req.rawBody = buf.toString((encoding as BufferEncoding) || 'utf8');
-    }
-  }
-}));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use(
+  express.json({
+    limit: '10mb',
+    verify: (req: any, res, buf, encoding) => {
+      // Save raw body for webhook endpoints that need signature verification
+      if (req.originalUrl?.includes('/webhook')) {
+        req.rawBody = buf.toString((encoding as BufferEncoding) || 'utf8');
+      }
+    },
+  }),
+);
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
 // Input sanitization
@@ -61,34 +63,34 @@ app.use(additionalSanitization);
 app.use(
   cors({
     origin: [
-      "https://joura.info",
-      "http://localhost:3000",
-      "http://10.10.12.125:3000",
-      "http://localhost:3001",
-      "https://j5dmj0c5-5009.inc1.devtunnels.ms", // Dev Tunnels URL
+      'https://joura.info',
+      'http://localhost:3000',
+      'http://10.10.12.125:3000',
+      'http://localhost:3001',
+      'https://j5dmj0c5-5009.inc1.devtunnels.ms', // Dev Tunnels URL
     ],
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     credentials: true,
     maxAge: 86400, // 24 hours
-  })
+  }),
 );
 
 //file retrieve
-app.use(express.static("uploads"));
+app.use(express.static('uploads'));
 
 // Health check and monitoring endpoints
-app.get("/health", healthCheck);
-app.get("/api/v1/performance", performanceDashboard);
+app.get('/health', healthCheck);
+app.get('/api/v1/performance', performanceDashboard);
 
 //morgan
 app.use(Morgan.successHandler);
 //router
-app.use("/api/v1", router);
+app.use('/api/v1', router);
 app.use(Morgan.errorHandler);
 //live response
-app.get("/", (req: Request, res: Response) => { 
+app.get('/', (req: Request, res: Response) => {
   console.log(`Hello from container: ${os.hostname()}`);
-  
+
   res.send(
     ` <div style="display: flex; align-items: center; justify-content: center; height: 100vh; background: #f5f3ff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
     <div style="text-align: center; padding: 2rem 3rem; background-color: #ffffff; border-radius: 16px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);">
@@ -101,7 +103,7 @@ app.get("/", (req: Request, res: Response) => {
         </a>
       </div>
     </div>
-  </div>`
+  </div>`,
   );
 });
 
@@ -112,7 +114,7 @@ app.use(globalErrorHandler);
 app.use((req, res) => {
   res.status(StatusCodes.NOT_FOUND).json({
     success: false,
-    message: "Not found",
+    message: 'Not found',
     errorMessages: [
       {
         path: req.originalUrl,

@@ -7,9 +7,7 @@ import { BlockServices } from "./block.service";
 const blockUser = catchAsync(async (req: Request, res: Response) => {
   const blockerId = req.user?._id;
   const { userId: blockedId } = req.params;
-  
   const result = await BlockServices.blockUser(blockerId, blockedId);
-  
   sendResponse(res, {
     statusCode: StatusCodes.CREATED,
     success: true,
@@ -21,9 +19,7 @@ const blockUser = catchAsync(async (req: Request, res: Response) => {
 const unblockUser = catchAsync(async (req: Request, res: Response) => {
   const blockerId = req.user?._id;
   const { userId: blockedId } = req.params;
-  
   const result = await BlockServices.unblockUser(blockerId, blockedId);
-  
   sendResponse(res, {
     statusCode: StatusCodes.OK,
     success: true,
@@ -34,9 +30,7 @@ const unblockUser = catchAsync(async (req: Request, res: Response) => {
 
 const getBlockedUsers = catchAsync(async (req: Request, res: Response) => {
   const userId = req.user?._id;
-  
   const result = await BlockServices.getBlockedUsers(userId);
-  
   sendResponse(res, {
     statusCode: StatusCodes.OK,
     success: true,
@@ -48,16 +42,12 @@ const getBlockedUsers = catchAsync(async (req: Request, res: Response) => {
 const checkBlockStatus = catchAsync(async (req: Request, res: Response) => {
   const currentUserId = req.user?._id;
   const { userId: otherUserId } = req.params;
-  
   const areBlocking = await BlockServices.areUsersBlocking(currentUserId, otherUserId);
-  
   sendResponse(res, {
     statusCode: StatusCodes.OK,
     success: true,
     message: "Block status retrieved successfully",
-    data: {
-      isBlocked: areBlocking,
-    },
+    data: { isBlocked: areBlocking },
   });
 });
 
