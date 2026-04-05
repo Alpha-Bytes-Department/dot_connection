@@ -5,7 +5,7 @@ services:
     container_name: dot_connection_app_redis
     restart: always
     ports:
-      - "6389:6379"
+      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -18,31 +18,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-
     env_file:
       - .env
-
-    ports:
-      - "5009:5009"
-
+    network_mode: host
     depends_on:
       redis:
         condition: service_healthy
-
     volumes:
       - dot_connection_app_logs:/app/winston
-
     restart: unless-stopped
-
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5009/health"]
-      interval: 30s
-      retries: 3
-      start_period: 40s
-      timeout: 10s
 
 volumes:
   dot_connection_app_logs:
