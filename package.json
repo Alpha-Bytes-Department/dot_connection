@@ -71,15 +71,5 @@
     "eslint-config-prettier": "^10.1.1",
     "tsx": "^4.19.2",
     "typescript": "^5.8.3"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/abdullahalkafi-dev/dot_connection_app.git"
-  },
-  "author": "",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/abdullahalkafi-dev/dot_connection_app/issues"
-  },
-  "homepage": "https://github.com/abdullahalkafi-dev/dot_connection_app#readme"
+  }
 }

@@ -92,18 +92,7 @@ app.get('/', (req: Request, res: Response) => {
   console.log(`Hello from container: ${os.hostname()}`);
 
   res.send(
-    ` <div style="display: flex; align-items: center; justify-content: center; height: 100vh; background: #f5f3ff; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
-    <div style="text-align: center; padding: 2rem 3rem; background-color: #ffffff; border-radius: 16px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);">
-      <h1 style="font-size: 2.5rem; color: #7C3AED; margin-bottom: 1rem;">Welcome 👋</h1>
-      <p style="font-size: 1.2rem; color: #555;">I'm here to help you. How can I assist today?</p>
-      <div style="margin-top: 2rem;">
-        <p style="color: #777;">Want to see more projects or contact me?</p>
-        <a href="https://github.com/abdullahalkafi-dev" target="_blank" style="text-decoration: none; color: #fff; background-color: #6D28D9; padding: 0.75rem 1.5rem; border-radius: 8px; font-weight: bold; display: inline-block; transition: background 0.3s;">
-          Visit My GitHub 🚀
-        </a>
-      </div>
-    </div>
-  </div>`,
+    `Hello from container: ${os.hostname()}`,
   );
 });
 
