@@ -1,0 +1,15 @@
+model Report {
+  id String @id @default(uuid())
+
+  targetId String
+
+  target User @relation(fields: [targetId], references: [id], onDelete: Cascade)
+
+  note String?
+
+  status ReportStatus @default(PENDING)
+
+  timestamp DateTime @default(now())
+
+  @@map("reports")
+}

@@ -57,8 +57,9 @@ model User {
 
   notifications Notification[]
 
-  blocksInitiated Block[] @relation("BlockBlocker")
-  blocksReceived  Block[] @relation("BlockBlocked")
+  blocksInitiated Block[]  @relation("BlockBlocker")
+  blocksReceived  Block[]  @relation("BlockBlocked")
+  reports         Report[]
 
   @@index([status])
   @@index([createdAt(sort: Desc)])

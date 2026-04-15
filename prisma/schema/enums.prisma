@@ -86,3 +86,9 @@ enum NotificationType {
   connection_request
   general
 }
+
+enum ReportStatus {
+  PENDING
+  RESOLVED
+  REJECTED
+}
