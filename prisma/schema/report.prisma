@@ -3,13 +3,18 @@ model Report {
 
   targetId String
 
-  target User @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  target User @relation("TargetReport", fields: [targetId], references: [id], onDelete: Cascade)
 
-  note String?
+  reporterId String
+
+  reporter User @relation("ReporterReport", fields: [reporterId], references: [id], onDelete: Cascade)
+
+  reason String?
 
   status ReportStatus @default(PENDING)
 
   timestamp DateTime @default(now())
+  userId    String?
 
   @@map("reports")
 }

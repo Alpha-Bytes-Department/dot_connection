@@ -59,7 +59,8 @@ model User {
 
   blocksInitiated Block[]  @relation("BlockBlocker")
   blocksReceived  Block[]  @relation("BlockBlocked")
-  reports         Report[]
+  reported        Report[] @relation("ReporterReport")
+  reporter        Report[] @relation("TargetReport")
 
   @@index([status])
   @@index([createdAt(sort: Desc)])
