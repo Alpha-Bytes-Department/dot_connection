@@ -9,6 +9,7 @@ const reportUserSchema = z.object({
 
 export type ReportUserInput = z.infer<typeof reportUserSchema>['body'] & {
   files?: string[];
+  reporterId: string;
 };
 
 export const ReportValidation = {

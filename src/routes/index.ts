@@ -7,6 +7,7 @@ import { MessageRoutes } from '../app/modules/message/message.route';
 import { BlockRoutes } from '../app/modules/block/block.route';
 import { SettingRoutes } from '../app/modules/setting/setting.route';
 import { NotificationRoutes } from '../app/modules/notification/notification.route';
+import { ReportRoute } from '../app/modules/report/report.route';
 
 const router: Router = express.Router();
 
@@ -42,6 +43,10 @@ const apiRoutes: { path: string; route: Router }[] = [
   {
     path: '/notification',
     route: NotificationRoutes,
+  },
+  {
+    path: '/report',
+    route: ReportRoute,
   },
 ];
 

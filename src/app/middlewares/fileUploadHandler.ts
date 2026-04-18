@@ -275,16 +275,17 @@ const fileUploadHandler = (req: Request, res: Response, next: NextFunction) => {
         );
       }
     } else if (file.fieldname === "media") {
-      if (file.mimetype === "video/mp4" || file.mimetype === "audio/mpeg") {
-        cb(null, true);
-      } else {
-        cb(
-          new AppError(
-            StatusCodes.BAD_REQUEST,
-            "Only .mp4, .mp3, file supported"
-          )
-        );
-      }
+      cb(null, true);
+      // if (file.mimetype === "video/mp4" || file.mimetype === "audio/mpeg") {
+      //   cb(null, true);
+      // } else {
+      //   cb(
+      //     new AppError(
+      //       StatusCodes.BAD_REQUEST,
+      //       "Only .mp4, .mp3, file supported"
+      //     )
+      //   );
+      // }
     } else if (file.fieldname === "doc" || file.fieldname === "docs") {
       if (file.mimetype === "application/pdf") {
         cb(null, true);
