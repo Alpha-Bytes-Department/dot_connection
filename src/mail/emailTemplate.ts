@@ -27,7 +27,7 @@ const themes = {
   },
 };
 const createAccount = (values: TCreateAccount) => {
-  const theme = themes[values.theme] ?? themes["theme-blue"];
+  const theme = themes["theme-purple"];
 
   const data = {
     to: values.email,
@@ -77,7 +77,7 @@ const createAccount = (values: TCreateAccount) => {
                 <table border="0" cellpadding="0" cellspacing="0" width="100%">
                   <tr>
                     <td>
-                      <h2 style="color: ${theme.primary}; margin-top: 0;">Hello, ${values.name}!</h2>
+                      <h2 style="color: ${theme.primary}; margin-top: 0;">Hello!</h2>
                       <p style="color: #333333; margin-bottom: 20px;">Thank you for signing up. Please verify your email address to complete your registration.</p>
 
                       <!-- Verification button -->
@@ -101,7 +101,7 @@ const createAccount = (values: TCreateAccount) => {
             <!-- Footer -->
             <tr>
               <td style="background-color: ${theme.accent}; padding: 20px; text-align: center; border-left: 1px solid #e6e6e6; border-right: 1px solid #e6e6e6; border-bottom: 1px solid #e6e6e6;">
-                <p style="color: #333333; margin: 0; font-size: 14px;">© 2025 TrueDots. All rights reserved.</p>
+                <p style="color: #333333; margin: 0; font-size: 14px;">© ${new Date().getFullYear()} TrueDots. All rights reserved.</p>
               </td>
             </tr>
           </table>
@@ -197,7 +197,7 @@ const resetPassword = (values: TResetPassword) => {
             <!-- Footer -->
             <tr>
               <td style="background-color: ${theme.accent}; padding: 20px; text-align: center; border-left: 1px solid #e6e6e6; border-right: 1px solid #e6e6e6; border-bottom: 1px solid #e6e6e6;">
-                <p style="color: #333333; margin: 0; font-size: 14px;">© 2025 TrueDots. All rights reserved.</p>
+                <p style="color: #333333; margin: 0; font-size: 14px;">© ${new Date().getFullYear()} TrueDots. All rights reserved.</p>
               </td>
             </tr>
           </table>
